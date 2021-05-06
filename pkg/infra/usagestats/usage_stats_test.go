@@ -294,9 +294,9 @@ func TestMetrics(t *testing.T) {
 			assert.Equal(t, getSystemStatsQuery.Result.Users, metrics.Get("stats.users.count").MustInt64())
 			assert.Equal(t, getSystemStatsQuery.Result.Orgs, metrics.Get("stats.orgs.count").MustInt64())
 			assert.Equal(t, getSystemStatsQuery.Result.Playlists, metrics.Get("stats.playlist.count").MustInt64())
-			assert.Equal(t, len(manager.Apps), metrics.Get("stats.plugins.apps.count").MustInt())
-			assert.Equal(t, len(manager.Panels), metrics.Get("stats.plugins.panels.count").MustInt())
-			assert.Equal(t, len(manager.DataSources), metrics.Get("stats.plugins.datasources.count").MustInt())
+			assert.Equal(t, uss.PluginManager.AppCount(), metrics.Get("stats.plugins.apps.count").MustInt())
+			assert.Equal(t, uss.PluginManager.PanelCount(), metrics.Get("stats.plugins.panels.count").MustInt())
+			assert.Equal(t, uss.PluginManager.DataSourceCount(), metrics.Get("stats.plugins.datasources.count").MustInt())
 			assert.Equal(t, getSystemStatsQuery.Result.Alerts, metrics.Get("stats.alerts.count").MustInt64())
 			assert.Equal(t, getSystemStatsQuery.Result.ActiveUsers, metrics.Get("stats.active_users.count").MustInt64())
 			assert.Equal(t, getSystemStatsQuery.Result.Datasources, metrics.Get("stats.datasources.count").MustInt64())
@@ -542,37 +542,56 @@ func (aum *alertingUsageMock) QueryUsageStats() (*alerting.UsageStats, error) {
 	}, nil
 }
 
+type fakePluginManager struct {
+	manager.PluginManager
+
+	dataSources map[string]*plugins.DataSourcePlugin
+	panels      map[string]*plugins.PanelPlugin
+}
+
+func (pm fakePluginManager) DataSourceCount() int {
+	return len(pm.dataSources)
+}
+
+func (pm fakePluginManager) GetDataSource(id string) *plugins.DataSourcePlugin {
+	return pm.dataSources[id]
+}
+
+func (pm fakePluginManager) PanelCount() int {
+	return len(pm.panels)
+}
+
 func setupSomeDataSourcePlugins(t *testing.T, uss *UsageStatsService) {
 	t.Helper()
 
-	originalDataSources := manager.DataSources
-	t.Cleanup(func() { manager.DataSources = originalDataSources })
-	manager.DataSources = map[string]*plugins.DataSourcePlugin{
-		models.DS_ES: {
-			FrontendPluginBase: plugins.FrontendPluginBase{
-				PluginBase: plugins.PluginBase{
-					Signature: "internal",
+	uss.PluginManager = &fakePluginManager{
+		dataSources: map[string]*plugins.DataSourcePlugin{
+			models.DS_ES: {
+				FrontendPluginBase: plugins.FrontendPluginBase{
+					PluginBase: plugins.PluginBase{
+						Signature: "internal",
+					},
 				},
 			},
-		},
-		models.DS_PROMETHEUS: {
-			FrontendPluginBase: plugins.FrontendPluginBase{
-				PluginBase: plugins.PluginBase{
-					Signature: "internal",
+			models.DS_PROMETHEUS: {
+				FrontendPluginBase: plugins.FrontendPluginBase{
+					PluginBase: plugins.PluginBase{
+						Signature: "internal",
+					},
 				},
 			},
-		},
-		models.DS_GRAPHITE: {
-			FrontendPluginBase: plugins.FrontendPluginBase{
-				PluginBase: plugins.PluginBase{
-					Signature: "internal",
+			models.DS_GRAPHITE: {
+				FrontendPluginBase: plugins.FrontendPluginBase{
+					PluginBase: plugins.PluginBase{
+						Signature: "internal",
+					},
 				},
 			},
-		},
-		models.DS_MYSQL: {
-			FrontendPluginBase: plugins.FrontendPluginBase{
-				PluginBase: plugins.PluginBase{
-					Signature: "internal",
+			models.DS_MYSQL: {
+				FrontendPluginBase: plugins.FrontendPluginBase{
+					PluginBase: plugins.PluginBase{
+						Signature: "internal",
+					},
 				},
 			},
 		},
@@ -595,5 +614,6 @@ func createService(t *testing.T, cfg setting.Cfg) *UsageStatsService {
 		License:            &licensing.OSSLicensingService{},
 		AlertingUsageStats: &alertingUsageMock{},
 		externalMetrics:    make(map[string]MetricFunc),
+		PluginManager:      &fakePluginManager{},
 	}
 }
