@@ -1,12 +1,13 @@
-import React, { ComponentProps, useState } from 'react';
-import { InlineField, Input } from '@grafana/ui';
-import { useDispatch } from '../../../../hooks/useStatelessReducer';
-import { changeMetricSetting } from '../state/actions';
-import { ChangeMetricSettingAction } from '../state/types';
-import { SettingKeyOf } from '../../../types';
-import { MetricAggregationWithInlineScript, MetricAggregationWithSettings } from '../aggregations';
 import { uniqueId } from 'lodash';
+import React, { ComponentProps, useState } from 'react';
+
+import { InlineField, Input } from '@grafana/ui';
 import { getScriptValue } from 'app/plugins/datasource/elasticsearch/utils';
+
+import { useDispatch } from '../../../../hooks/useStatelessReducer';
+import { MetricAggregationWithInlineScript, MetricAggregationWithSettings } from '../../../../types';
+import { SettingKeyOf } from '../../../types';
+import { changeMetricSetting } from '../state/actions';
 
 interface Props<T extends MetricAggregationWithSettings, K extends SettingKeyOf<T>> {
   label: string;
@@ -23,7 +24,7 @@ export function SettingField<T extends MetricAggregationWithSettings, K extends 
   placeholder,
   tooltip,
 }: Props<T, K>) {
-  const dispatch = useDispatch<ChangeMetricSettingAction<T>>();
+  const dispatch = useDispatch();
   const [id] = useState(uniqueId(`es-field-id-`));
   const settings = metric.settings;
 
@@ -38,7 +39,7 @@ export function SettingField<T extends MetricAggregationWithSettings, K extends 
       <Input
         id={id}
         placeholder={placeholder}
-        onBlur={(e) => dispatch(changeMetricSetting(metric, settingName, e.target.value as any))}
+        onBlur={(e) => dispatch(changeMetricSetting({ metric, settingName, newValue: e.target.value }))}
         defaultValue={defaultValue}
       />
     </InlineField>

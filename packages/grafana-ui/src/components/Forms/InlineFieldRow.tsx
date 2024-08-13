@@ -1,14 +1,16 @@
-import React, { FC, HTMLProps, ReactNode } from 'react';
-import { css, cx } from 'emotion';
-import { useStyles } from '../../themes';
-import { GrafanaTheme } from '@grafana/data';
+import { css, cx } from '@emotion/css';
+import React, { HTMLProps, ReactNode } from 'react';
+
+import { GrafanaTheme2 } from '@grafana/data';
+
+import { useStyles2 } from '../../themes';
 
 export interface Props extends Omit<HTMLProps<HTMLDivElement>, 'css'> {
   children: ReactNode | ReactNode[];
 }
 
-export const InlineFieldRow: FC<Props> = ({ children, className, ...htmlProps }) => {
-  const styles = useStyles(getStyles);
+export const InlineFieldRow = ({ children, className, ...htmlProps }: Props) => {
+  const styles = useStyles2(getStyles);
   return (
     <div className={cx(styles.container, className)} {...htmlProps}>
       {children}
@@ -16,14 +18,15 @@ export const InlineFieldRow: FC<Props> = ({ children, className, ...htmlProps })
   );
 };
 
-const getStyles = (theme: GrafanaTheme) => {
+const getStyles = (theme: GrafanaTheme2) => {
   return {
-    container: css`
-      label: InlineFieldRow;
-      display: flex;
-      flex-direction: row;
-      flex-wrap: wrap;
-      align-content: flex-start;
-    `,
+    container: css({
+      label: 'InlineFieldRow',
+      display: 'flex',
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      alignContent: 'flex-start',
+      rowGap: theme.spacing(0.5),
+    }),
   };
 };

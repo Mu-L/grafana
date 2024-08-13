@@ -6,15 +6,32 @@ import (
 	"github.com/grafana/grafana/pkg/expr/mathexp"
 )
 
+type EvaluatorKind int
+
+const (
+	EvaluatorNoValue = iota
+	EvaluatorThreshold
+	EvaluatorRanged
+)
+
 type evaluator interface {
 	Eval(mathexp.Number) bool
+	Kind() EvaluatorKind
 }
 
 type noValueEvaluator struct{}
 
+func (noValueEvaluator) Kind() EvaluatorKind {
+	return EvaluatorNoValue
+}
+
 type thresholdEvaluator struct {
 	Type      string
 	Threshold float64
+}
+
+func (thresholdEvaluator) Kind() EvaluatorKind {
+	return EvaluatorThreshold
 }
 
 type rangedEvaluator struct {
@@ -23,9 +40,13 @@ type rangedEvaluator struct {
 	Upper float64
 }
 
+func (rangedEvaluator) Kind() EvaluatorKind {
+	return EvaluatorRanged
+}
+
 // newAlertEvaluator is a factory function for returning
 // an AlertEvaluator depending on evaluation operator.
-func newAlertEvaluator(model conditionEvalJSON) (evaluator, error) {
+func newAlertEvaluator(model ConditionEvalJSON) (evaluator, error) {
 	switch model.Type {
 	case "gt", "lt":
 		return newThresholdEvaluator(model)
@@ -54,7 +75,7 @@ func (e *thresholdEvaluator) Eval(reducedValue mathexp.Number) bool {
 	return false
 }
 
-func newThresholdEvaluator(model conditionEvalJSON) (*thresholdEvaluator, error) {
+func newThresholdEvaluator(model ConditionEvalJSON) (*thresholdEvaluator, error) {
 	if len(model.Params) == 0 {
 		return nil, fmt.Errorf("evaluator '%v' is missing the threshold parameter", model.Type)
 	}
@@ -69,7 +90,7 @@ func (e *noValueEvaluator) Eval(reducedValue mathexp.Number) bool {
 	return reducedValue.GetFloat64Value() == nil
 }
 
-func newRangedEvaluator(model conditionEvalJSON) (*rangedEvaluator, error) {
+func newRangedEvaluator(model ConditionEvalJSON) (*rangedEvaluator, error) {
 	if len(model.Params) != 2 {
 		return nil, fmt.Errorf("ranged evaluator requires 2 parameters")
 	}

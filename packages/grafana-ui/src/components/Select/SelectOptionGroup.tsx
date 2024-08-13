@@ -1,12 +1,14 @@
+import { css } from '@emotion/css';
 import React, { PureComponent } from 'react';
-import { css } from 'emotion';
-import { GrafanaTheme } from '@grafana/data';
 import { GroupProps } from 'react-select';
-import { stylesFactory, withTheme } from '../../themes';
-import { Themeable } from '../../types';
+
+import { GrafanaTheme2 } from '@grafana/data';
+
+import { stylesFactory, withTheme2 } from '../../themes';
+import { Themeable2 } from '../../types';
 import { Icon } from '../Icon/Icon';
 
-interface ExtendedGroupProps extends GroupProps<any>, Themeable {
+interface ExtendedGroupProps extends Omit<GroupProps<any, any>, 'theme'>, Themeable2 {
   data: {
     label: string;
     expanded: boolean;
@@ -18,28 +20,28 @@ interface State {
   expanded: boolean;
 }
 
-const getSelectOptionGroupStyles = stylesFactory((theme: GrafanaTheme) => {
+const getSelectOptionGroupStyles = stylesFactory((theme: GrafanaTheme2) => {
   return {
-    header: css`
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      justify-items: center;
-      cursor: pointer;
-      padding: 7px 10px;
-      width: 100%;
-      border-bottom: 1px solid ${theme.colors.bg2};
+    header: css({
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'flex-start',
+      justifyItems: 'center',
+      cursor: 'pointer',
+      padding: '7px 10px',
+      width: '100%',
+      borderBottom: `1px solid ${theme.colors.background.secondary}`,
 
-      &:hover {
-        color: ${theme.colors.textStrong};
-      }
-    `,
-    label: css`
-      flex-grow: 1;
-    `,
-    icon: css`
-      padding-right: 2px;
-    `,
+      '&:hover': {
+        color: theme.colors.text.maxContrast,
+      },
+    }),
+    label: css({
+      flexGrow: 1,
+    }),
+    icon: css({
+      paddingRight: '2px',
+    }),
   };
 });
 
@@ -79,9 +81,11 @@ class UnthemedSelectOptionGroup extends PureComponent<ExtendedGroupProps, State>
 
     return (
       <div>
-        <div className={styles.header} onClick={this.onToggleChildren}>
+        {/*React Select doesn't support focusable option group headers, this will be skipped when using
+      the keyboard */}
+        <div className={styles.header} onClick={this.onToggleChildren} role="presentation">
           <span className={styles.label}>{label}</span>
-          <Icon className={styles.icon} name={expanded ? 'angle-up' : 'angle-down'} />{' '}
+          <Icon className={styles.icon} name={expanded ? 'angle-up' : 'angle-down'} />
         </div>
         {expanded && children}
       </div>
@@ -89,4 +93,4 @@ class UnthemedSelectOptionGroup extends PureComponent<ExtendedGroupProps, State>
   }
 }
 
-export const SelectOptionGroup = withTheme(UnthemedSelectOptionGroup);
+export const SelectOptionGroup = withTheme2(UnthemedSelectOptionGroup);

@@ -1,229 +1,17 @@
+import {
+  PipelineMetricAggregationWithMultipleBucketPaths,
+  MetricAggregationWithMeta,
+  MovingAverage,
+  MetricAggregationType,
+  BaseMetricAggregation,
+  MetricAggregationWithField,
+  MetricAggregationWithMissingSupport,
+  MetricAggregationWithInlineScript,
+  PipelineMetricAggregation,
+  MetricAggregationWithSettings,
+} from '../../../types';
+
 import { metricAggregationConfig } from './utils';
-
-export type PipelineMetricAggregationType =
-  | 'moving_avg'
-  | 'moving_fn'
-  | 'derivative'
-  | 'serial_diff'
-  | 'cumulative_sum'
-  | 'bucket_script';
-
-export type MetricAggregationType =
-  | 'count'
-  | 'avg'
-  | 'sum'
-  | 'min'
-  | 'max'
-  | 'extended_stats'
-  | 'percentiles'
-  | 'cardinality'
-  | 'raw_document'
-  | 'raw_data'
-  | 'logs'
-  | PipelineMetricAggregationType;
-
-interface BaseMetricAggregation {
-  id: string;
-  type: MetricAggregationType;
-  hide?: boolean;
-}
-
-export interface PipelineVariable {
-  name: string;
-  pipelineAgg: string;
-}
-
-export interface MetricAggregationWithField extends BaseMetricAggregation {
-  field?: string;
-}
-
-export interface MetricAggregationWithMissingSupport extends BaseMetricAggregation {
-  settings?: {
-    missing?: string;
-  };
-}
-
-type InlineScript = string | { inline?: string };
-export interface MetricAggregationWithInlineScript extends BaseMetricAggregation {
-  settings?: {
-    script?: InlineScript;
-  };
-}
-
-export interface Count extends BaseMetricAggregation {
-  type: 'count';
-}
-
-export interface Average
-  extends MetricAggregationWithField,
-    MetricAggregationWithMissingSupport,
-    MetricAggregationWithInlineScript {
-  type: 'avg';
-  settings?: {
-    script?: InlineScript;
-    missing?: string;
-  };
-}
-
-export interface Sum extends MetricAggregationWithField, MetricAggregationWithInlineScript {
-  type: 'sum';
-  settings?: {
-    script?: InlineScript;
-    missing?: string;
-  };
-}
-
-export interface Max extends MetricAggregationWithField, MetricAggregationWithInlineScript {
-  type: 'max';
-  settings?: {
-    script?: InlineScript;
-    missing?: string;
-  };
-}
-
-export interface Min extends MetricAggregationWithField, MetricAggregationWithInlineScript {
-  type: 'min';
-  settings?: {
-    script?: InlineScript;
-    missing?: string;
-  };
-}
-
-export type ExtendedStatMetaType =
-  | 'avg'
-  | 'min'
-  | 'max'
-  | 'sum'
-  | 'count'
-  | 'std_deviation'
-  | 'std_deviation_bounds_upper'
-  | 'std_deviation_bounds_lower';
-export interface ExtendedStat {
-  label: string;
-  value: ExtendedStatMetaType;
-}
-
-export interface ExtendedStats extends MetricAggregationWithField, MetricAggregationWithInlineScript {
-  type: 'extended_stats';
-  settings?: {
-    script?: InlineScript;
-    missing?: string;
-    sigma?: string;
-  };
-  meta?: {
-    [P in ExtendedStatMetaType]?: boolean;
-  };
-}
-
-export interface Percentiles extends MetricAggregationWithField, MetricAggregationWithInlineScript {
-  type: 'percentiles';
-  settings?: {
-    percents?: string[];
-    script?: InlineScript;
-    missing?: string;
-  };
-}
-
-export interface UniqueCount extends MetricAggregationWithField {
-  type: 'cardinality';
-  settings?: {
-    precision_threshold?: string;
-    missing?: string;
-  };
-}
-
-export interface RawDocument extends BaseMetricAggregation {
-  type: 'raw_document';
-  settings?: {
-    size?: string;
-  };
-}
-
-export interface RawData extends BaseMetricAggregation {
-  type: 'raw_data';
-  settings?: {
-    size?: string;
-  };
-}
-
-export interface Logs extends BaseMetricAggregation {
-  type: 'logs';
-}
-
-export interface BasePipelineMetricAggregation extends MetricAggregationWithField {
-  type: PipelineMetricAggregationType;
-  pipelineAgg?: string;
-}
-
-export interface PipelineMetricAggregationWithMultipleBucketPaths extends BaseMetricAggregation {
-  type: PipelineMetricAggregationType;
-  pipelineVariables?: PipelineVariable[];
-}
-
-export type MovingAverageModel = 'simple' | 'linear' | 'ewma' | 'holt' | 'holt_winters';
-
-export interface MovingAverageModelOption {
-  label: string;
-  value: MovingAverageModel;
-}
-
-export interface BaseMovingAverageModelSettings {
-  model: MovingAverageModel;
-  window: number;
-  predict: number;
-}
-
-export interface MovingAverageSimpleModelSettings extends BaseMovingAverageModelSettings {
-  model: 'simple';
-}
-
-export interface MovingAverageLinearModelSettings extends BaseMovingAverageModelSettings {
-  model: 'linear';
-}
-
-export interface MovingAverageEWMAModelSettings extends BaseMovingAverageModelSettings {
-  model: 'ewma';
-  alpha: number;
-  minimize: boolean;
-}
-
-export interface MovingAverageHoltModelSettings extends BaseMovingAverageModelSettings {
-  model: 'holt';
-  settings: {
-    alpha?: number;
-    beta?: number;
-  };
-  minimize: boolean;
-}
-
-export interface MovingAverageHoltWintersModelSettings extends BaseMovingAverageModelSettings {
-  model: 'holt_winters';
-  settings: {
-    alpha?: number;
-    beta?: number;
-    gamma?: number;
-    period?: number;
-    pad?: boolean;
-  };
-  minimize: boolean;
-}
-
-export type MovingAverageModelSettings<T extends MovingAverageModel = MovingAverageModel> = Partial<
-  Extract<
-    | MovingAverageSimpleModelSettings
-    | MovingAverageLinearModelSettings
-    | MovingAverageEWMAModelSettings
-    | MovingAverageHoltModelSettings
-    | MovingAverageHoltWintersModelSettings,
-    { model: T }
-  >
->;
-
-export interface MovingAverage<T extends MovingAverageModel = MovingAverageModel>
-  extends BasePipelineMetricAggregation {
-  type: 'moving_avg';
-  settings?: MovingAverageModelSettings<T>;
-}
 
 export const isEWMAMovingAverage = (metric: MovingAverage | MovingAverage<'ewma'>): metric is MovingAverage<'ewma'> =>
   metric.settings?.model === 'ewma';
@@ -235,65 +23,10 @@ export const isHoltWintersMovingAverage = (
   metric: MovingAverage | MovingAverage<'holt_winters'>
 ): metric is MovingAverage<'holt_winters'> => metric.settings?.model === 'holt_winters';
 
-export interface MovingFunction extends BasePipelineMetricAggregation {
-  type: 'moving_fn';
-  settings?: {
-    window?: string;
-    script?: InlineScript;
-    shift?: string;
-  };
-}
-
-export interface Derivative extends BasePipelineMetricAggregation {
-  type: 'derivative';
-  settings?: {
-    unit?: string;
-  };
-}
-
-export interface SerialDiff extends BasePipelineMetricAggregation {
-  type: 'serial_diff';
-  settings?: {
-    lag?: number;
-  };
-}
-
-export interface CumulativeSum extends BasePipelineMetricAggregation {
-  type: 'cumulative_sum';
-  settings?: {
-    format?: string;
-  };
-}
-
-export interface BucketScript extends PipelineMetricAggregationWithMultipleBucketPaths {
-  type: 'bucket_script';
-  settings?: {
-    script?: InlineScript;
-  };
-}
-
-type PipelineMetricAggregation = MovingAverage | Derivative | CumulativeSum | BucketScript;
-
-export type MetricAggregationWithSettings =
-  | BucketScript
-  | CumulativeSum
-  | Derivative
-  | SerialDiff
-  | RawData
-  | RawDocument
-  | UniqueCount
-  | Percentiles
-  | ExtendedStats
-  | Min
-  | Max
-  | Sum
-  | Average
-  | MovingAverage
-  | MovingFunction;
-
-export type MetricAggregationWithMeta = ExtendedStats;
-
-export type MetricAggregation = Count | Logs | PipelineMetricAggregation | MetricAggregationWithSettings;
+export const isMovingAverageWithModelSettings = (
+  metric: MovingAverage
+): metric is MovingAverage<'ewma'> | MovingAverage<'holt'> | MovingAverage<'holt_winters'> =>
+  ['holt', 'ewma', 'holt_winters'].includes(metric.settings?.model || '');
 
 // Guards
 // Given the structure of the aggregations (ie. `settings` field being always optional) we cannot
@@ -333,7 +66,7 @@ export const isMetricAggregationWithInlineScript = (
   metric: BaseMetricAggregation | MetricAggregationWithInlineScript
 ): metric is MetricAggregationWithInlineScript => metricAggregationConfig[metric.type].supportsInlineScript;
 
-export const METRIC_AGGREGATION_TYPES = [
+export const METRIC_AGGREGATION_TYPES: MetricAggregationType[] = [
   'count',
   'avg',
   'sum',
@@ -351,7 +84,9 @@ export const METRIC_AGGREGATION_TYPES = [
   'serial_diff',
   'cumulative_sum',
   'bucket_script',
+  'rate',
+  'top_metrics',
 ];
 
 export const isMetricAggregationType = (s: MetricAggregationType | string): s is MetricAggregationType =>
-  METRIC_AGGREGATION_TYPES.includes(s);
+  METRIC_AGGREGATION_TYPES.includes(s as MetricAggregationType);

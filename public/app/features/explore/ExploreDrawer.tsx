@@ -1,59 +1,11 @@
 // Libraries
-import React from 'react';
+import { css, cx, keyframes } from '@emotion/css';
 import { Resizable, ResizeCallback } from 're-resizable';
-import { css, cx, keyframes } from 'emotion';
+import React from 'react';
 
 // Services & Utils
-import { stylesFactory, useTheme } from '@grafana/ui';
-
-// Types
-import { GrafanaTheme } from '@grafana/data';
-
-const drawerSlide = keyframes`
-  0% {
-    transform: translateY(400px);
-  }
-
-  100% {
-    transform: translateY(0px);
-  }
-`;
-
-const getStyles = stylesFactory((theme: GrafanaTheme) => {
-  const shadowColor = theme.isLight ? theme.palette.gray4 : theme.palette.black;
-
-  return {
-    container: css`
-      position: fixed !important;
-      bottom: 0;
-      background: ${theme.colors.pageHeaderBg};
-      border-top: 1px solid ${theme.colors.formInputBorder};
-      margin: 0px;
-      margin-right: -${theme.spacing.md};
-      margin-left: -${theme.spacing.md};
-      box-shadow: 0 0 4px ${shadowColor};
-      z-index: ${theme.zIndex.sidemenu};
-    `,
-    drawerActive: css`
-      opacity: 1;
-      animation: 0.5s ease-out ${drawerSlide};
-    `,
-    rzHandle: css`
-      background: ${theme.colors.formInputBorder};
-      transition: 0.3s background ease-in-out;
-      position: relative;
-      width: 200px !important;
-      height: 7px !important;
-      left: calc(50% - 100px) !important;
-      top: -4px !important;
-      cursor: grab;
-      border-radius: 4px;
-      &:hover {
-        background: ${theme.colors.formInputBorderHover};
-      }
-    `,
-  };
-});
+import { GrafanaTheme2 } from '@grafana/data';
+import { useStyles2, useTheme2 } from '@grafana/ui';
 
 export interface Props {
   width: number;
@@ -63,14 +15,14 @@ export interface Props {
 
 export function ExploreDrawer(props: Props) {
   const { width, children, onResize } = props;
-  const theme = useTheme();
-  const styles = getStyles(theme);
+  const theme = useTheme2();
+  const styles = useStyles2(getStyles);
   const drawerWidth = `${width + 31.5}px`;
 
   return (
     <Resizable
       className={cx(styles.container, styles.drawerActive)}
-      defaultSize={{ width: drawerWidth, height: '400px' }}
+      defaultSize={{ width: drawerWidth, height: `${theme.components.horizontalDrawer.defaultHeight}px` }}
       handleClasses={{ top: styles.rzHandle }}
       enable={{
         top: true,
@@ -91,3 +43,43 @@ export function ExploreDrawer(props: Props) {
     </Resizable>
   );
 }
+
+const drawerSlide = (theme: GrafanaTheme2) => keyframes`
+  0% {
+    transform: translateY(${theme.components.horizontalDrawer.defaultHeight}px);
+  }
+
+  100% {
+    transform: translateY(0px);
+  }
+`;
+
+const getStyles = (theme: GrafanaTheme2) => ({
+  container: css`
+    position: fixed !important;
+    bottom: 0;
+    background: ${theme.colors.background.primary};
+    border-top: 1px solid ${theme.colors.border.weak};
+    margin: ${theme.spacing(0, -2, 0, -2)};
+    box-shadow: ${theme.shadows.z3};
+    z-index: ${theme.zIndex.navbarFixed};
+  `,
+  drawerActive: css`
+    opacity: 1;
+    animation: 0.5s ease-out ${drawerSlide(theme)};
+  `,
+  rzHandle: css`
+    background: ${theme.colors.secondary.main};
+    transition: 0.3s background ease-in-out;
+    position: relative;
+    width: 200px !important;
+    height: 7px !important;
+    left: calc(50% - 100px) !important;
+    top: -4px !important;
+    cursor: grab;
+    border-radius: ${theme.shape.radius.pill};
+    &:hover {
+      background: ${theme.colors.secondary.shade};
+    }
+  `,
+});

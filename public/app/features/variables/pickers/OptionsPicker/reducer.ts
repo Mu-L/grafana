@@ -1,13 +1,16 @@
+import uFuzzy from '@leeoniya/ufuzzy';
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { cloneDeep, isString, trim } from 'lodash';
-import { VariableOption, VariableTag, VariableWithMultiSupport, VariableWithOptions } from '../../types';
-import { ALL_VARIABLE_VALUE } from '../../state/types';
-import { isMulti, isQuery } from '../../guard';
+import { cloneDeep, isString } from 'lodash';
+
+import { containsSearchFilter } from '@grafana/data';
+
 import { applyStateChanges } from '../../../../core/utils/applyStateChanges';
-import { containsSearchFilter } from '../../utils';
+import { ALL_VARIABLE_VALUE } from '../../constants';
+import { isMulti, isQuery } from '../../guard';
+import { VariableOption, VariableWithOptions } from '../../types';
 
 export interface ToggleOption {
-  option: VariableOption;
+  option?: VariableOption;
   forceSelect: boolean;
   clearOthers: boolean;
 }
@@ -15,33 +18,30 @@ export interface ToggleOption {
 export interface OptionsPickerState {
   id: string;
   selectedValues: VariableOption[];
-  selectedTags: VariableTag[];
   queryValue: string;
   highlightIndex: number;
-  tags: VariableTag[];
   options: VariableOption[];
   multi: boolean;
 }
 
-export const initialState: OptionsPickerState = {
+export const initialOptionPickerState: OptionsPickerState = {
   id: '',
   highlightIndex: -1,
   queryValue: '',
-  selectedTags: [],
   selectedValues: [],
-  tags: [],
   options: [],
   multi: false,
 };
 
 export const OPTIONS_LIMIT = 1000;
 
-const getTags = (model: VariableWithMultiSupport) => {
-  if (isQuery(model) && Array.isArray(model.tags)) {
-    return cloneDeep(model.tags);
-  }
-  return [];
-};
+const ufuzzy = new uFuzzy({
+  intraMode: 1,
+  intraIns: 1,
+  intraSub: 1,
+  intraTrn: 1,
+  intraDel: 1,
+});
 
 const optionsToRecord = (options: VariableOption[]): Record<string, VariableOption> => {
   if (!Array.isArray(options)) {
@@ -115,9 +115,18 @@ const updateAllSelection = (state: OptionsPickerState): OptionsPickerState => {
   return state;
 };
 
+// Utility function to select all options except 'ALL_VARIABLE_VALUE'
+const selectAllOptions = (options: VariableOption[]) =>
+  options
+    .filter((option) => option.value !== ALL_VARIABLE_VALUE)
+    .map((option) => ({
+      ...option,
+      selected: true,
+    }));
+
 const optionsPickerSlice = createSlice({
   name: 'templating/optionsPicker',
-  initialState,
+  initialState: initialOptionPickerState,
   reducers: {
     showOptions: (state, action: PayloadAction<VariableWithOptions>): OptionsPickerState => {
       const { query, options } = action.payload;
@@ -129,7 +138,6 @@ const optionsPickerSlice = createSlice({
       state.multi = false;
 
       if (isMulti(action.payload)) {
-        state.tags = getTags(action.payload);
         state.multi = action.payload.multi ?? false;
       }
 
@@ -143,73 +151,42 @@ const optionsPickerSlice = createSlice({
       return applyStateChanges(state, updateDefaultSelection, updateOptions);
     },
     hideOptions: (state, action: PayloadAction): OptionsPickerState => {
-      return { ...initialState };
+      return { ...initialOptionPickerState };
     },
     toggleOption: (state, action: PayloadAction<ToggleOption>): OptionsPickerState => {
       const { option, clearOthers, forceSelect } = action.payload;
       const { multi, selectedValues } = state;
-      const selected = !selectedValues.find((o) => o.value === option.value);
 
-      if (option.value === ALL_VARIABLE_VALUE || !multi || clearOthers) {
-        if (selected || forceSelect) {
-          state.selectedValues = [{ ...option, selected: true }];
-        } else {
-          state.selectedValues = [];
+      if (option) {
+        const selected = !selectedValues.find((o) => o.value === option.value && o.text === option.text);
+
+        if (option.value === ALL_VARIABLE_VALUE || !multi || clearOthers) {
+          if (selected || forceSelect) {
+            state.selectedValues = [{ ...option, selected: true }];
+          } else {
+            state.selectedValues = [];
+          }
+
+          return applyStateChanges(state, updateDefaultSelection, updateAllSelection, updateOptions);
         }
-        return applyStateChanges(state, updateDefaultSelection, updateAllSelection, updateOptions);
+
+        if (forceSelect || selected) {
+          state.selectedValues.push({ ...option, selected: true });
+          return applyStateChanges(state, updateDefaultSelection, updateAllSelection, updateOptions);
+        }
+
+        state.selectedValues = selectedValues.filter((o) => o.value !== option.value && o.text !== option.text);
+      } else {
+        state.selectedValues = [];
       }
 
-      if (forceSelect || selected) {
-        state.selectedValues.push({ ...option, selected: true });
-        return applyStateChanges(state, updateDefaultSelection, updateAllSelection, updateOptions);
-      }
-
-      state.selectedValues = selectedValues.filter((o) => o.value !== option.value);
       return applyStateChanges(state, updateDefaultSelection, updateAllSelection, updateOptions);
-    },
-    toggleTag: (state, action: PayloadAction<VariableTag>): OptionsPickerState => {
-      const tag = action.payload;
-      const values = tag.values || [];
-      const selected = !tag.selected;
-
-      state.tags = state.tags.map((t) => {
-        if (t.text !== tag.text) {
-          return t;
-        }
-
-        t.selected = selected;
-        t.values = values;
-
-        if (selected) {
-          t.valuesText = values.join(' + ');
-        } else {
-          delete t.valuesText;
-        }
-
-        return t;
-      });
-
-      const availableOptions = optionsToRecord(state.options);
-
-      if (!selected) {
-        state.selectedValues = state.selectedValues.filter(
-          (option) => !isString(option.value) || !availableOptions[option.value]
-        );
-        return applyStateChanges(state, updateDefaultSelection, updateOptions);
-      }
-
-      const optionsFromTag = values
-        .filter((value) => value !== ALL_VARIABLE_VALUE && !!availableOptions[value])
-        .map((value) => ({ selected, value, text: value }));
-
-      state.selectedValues.push.apply(state.selectedValues, optionsFromTag);
-      return applyStateChanges(state, updateDefaultSelection, updateOptions);
     },
     moveOptionsHighlight: (state, action: PayloadAction<number>): OptionsPickerState => {
       let nextIndex = state.highlightIndex + action.payload;
 
       if (nextIndex < 0) {
-        nextIndex = 0;
+        nextIndex = -1;
       } else if (nextIndex >= state.options.length) {
         nextIndex = state.options.length - 1;
       }
@@ -219,34 +196,82 @@ const optionsPickerSlice = createSlice({
         highlightIndex: nextIndex,
       };
     },
+
+    /**
+     * Toggle the 'All' option or clear selections in the Options Picker dropdown.
+     * 1. If 'All' is configured but not selected, and some other options are selected, it deselects all other options and selects only 'All'.
+     * 2. If only 'All' is selected, it deselects 'All' and selects all other available options.
+     * 3. If some options are selected but 'All' is not configured in the variable,
+     *    it clears all selections and defaults to the current behavior for scenarios where 'All' is not configured.
+     * 4. If no options are selected, it selects all available options.
+     */
     toggleAllOptions: (state, action: PayloadAction): OptionsPickerState => {
-      if (state.selectedValues.length > 0) {
+      // Check if 'All' option is configured by the user and if it's selected in the dropdown
+      const isAllSelected = state.selectedValues.find((option) => option.value === ALL_VARIABLE_VALUE);
+      const allOptionConfigured = state.options.find((option) => option.value === ALL_VARIABLE_VALUE);
+
+      // If 'All' option is not selected from the dropdown, but some options are, clear all options and select 'All'
+      if (state.selectedValues.length > 0 && !!allOptionConfigured && !isAllSelected) {
+        state.selectedValues = [];
+
+        state.selectedValues.push({
+          text: allOptionConfigured.text ?? 'All',
+          value: allOptionConfigured.value,
+          selected: true,
+        });
+
+        return applyStateChanges(state, updateOptions);
+      }
+
+      // If 'All' option is the only one selected in the dropdown, unselect "All" and select each one of the other options.
+      if (isAllSelected && state.selectedValues.length === 1) {
+        state.selectedValues = selectAllOptions(state.options);
+        return applyStateChanges(state, updateOptions);
+      }
+
+      // If some options are selected, but 'All' is not configured by the user, clear the selection and let the
+      // current behavior when "All" does not exist and user clear the selected items.
+      if (state.selectedValues.length > 0 && !allOptionConfigured) {
         state.selectedValues = [];
         return applyStateChanges(state, updateOptions);
       }
 
-      state.selectedValues = state.options
-        .filter((option) => option.value !== ALL_VARIABLE_VALUE)
-        .map((option) => ({
-          ...option,
-          selected: true,
-        }));
-
+      // If no options are selected and 'All' is not selected, select all options
+      state.selectedValues = selectAllOptions(state.options);
       return applyStateChanges(state, updateOptions);
     },
+
     updateSearchQuery: (state, action: PayloadAction<string>): OptionsPickerState => {
       state.queryValue = action.payload;
       return state;
     },
     updateOptionsAndFilter: (state, action: PayloadAction<VariableOption[]>): OptionsPickerState => {
-      const searchQuery = trim((state.queryValue ?? '').toLowerCase());
+      const needle = state.queryValue.trim();
 
-      state.options = action.payload.filter((option) => {
-        const optionsText = option.text ?? '';
-        const text = Array.isArray(optionsText) ? optionsText.toString() : optionsText;
-        return text.toLowerCase().indexOf(searchQuery) !== -1;
-      });
+      let opts: VariableOption[] = [];
 
+      if (needle === '') {
+        opts = action.payload;
+      } else {
+        // with current API, not seeing a way to cache this on state using action.payload's uniqueness
+        // since it's recreated and includes selected state on each item :(
+        const haystack = action.payload.map(({ text }) => (Array.isArray(text) ? text.toString() : text));
+
+        const [idxs, info, order] = ufuzzy.search(haystack, needle, 5);
+
+        if (idxs?.length) {
+          if (info && order) {
+            opts = order.map((idx) => action.payload[info.idx[idx]]);
+          } else {
+            opts = idxs!.map((idx) => action.payload[idx]);
+          }
+
+          // always sort $__all to the top, even if exact match exists?
+          opts.sort((a, b) => (a.value === '$__all' ? -1 : 0) - (b.value === '$__all' ? -1 : 0));
+        }
+      }
+
+      state.options = opts;
       state.highlightIndex = 0;
 
       return applyStateChanges(state, updateDefaultSelection, updateOptions);
@@ -257,7 +282,7 @@ const optionsPickerSlice = createSlice({
 
       return applyStateChanges(state, updateDefaultSelection, updateOptions);
     },
-    cleanPickerState: () => initialState,
+    cleanPickerState: () => initialOptionPickerState,
   },
 });
 
@@ -265,7 +290,6 @@ export const {
   toggleOption,
   showOptions,
   hideOptions,
-  toggleTag,
   moveOptionsHighlight,
   toggleAllOptions,
   updateSearchQuery,

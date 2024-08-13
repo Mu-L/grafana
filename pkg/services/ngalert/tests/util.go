@@ -1,90 +1,152 @@
 package tests
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
-	"github.com/grafana/grafana/pkg/services/ngalert/models"
-
-	"github.com/grafana/grafana/pkg/services/ngalert"
-	"github.com/grafana/grafana/pkg/services/ngalert/store"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/require"
 
 	"github.com/grafana/grafana/pkg/api/routing"
-
+	"github.com/grafana/grafana/pkg/bus"
+	"github.com/grafana/grafana/pkg/infra/appcontext"
+	"github.com/grafana/grafana/pkg/infra/db"
 	"github.com/grafana/grafana/pkg/infra/log"
-	"github.com/grafana/grafana/pkg/registry"
-	"github.com/grafana/grafana/pkg/services/sqlstore"
+	"github.com/grafana/grafana/pkg/infra/tracing"
+	acmock "github.com/grafana/grafana/pkg/services/accesscontrol/mock"
+	"github.com/grafana/grafana/pkg/services/annotations/annotationstest"
+	"github.com/grafana/grafana/pkg/services/dashboards"
+	"github.com/grafana/grafana/pkg/services/featuremgmt"
+	"github.com/grafana/grafana/pkg/services/folder"
+	"github.com/grafana/grafana/pkg/services/folder/folderimpl"
+	"github.com/grafana/grafana/pkg/services/ngalert"
+	"github.com/grafana/grafana/pkg/services/ngalert/metrics"
+	"github.com/grafana/grafana/pkg/services/ngalert/migration"
+	"github.com/grafana/grafana/pkg/services/ngalert/models"
+	"github.com/grafana/grafana/pkg/services/ngalert/store"
+	"github.com/grafana/grafana/pkg/services/ngalert/testutil"
+	"github.com/grafana/grafana/pkg/services/org"
+	"github.com/grafana/grafana/pkg/services/pluginsintegration/pluginstore"
+	"github.com/grafana/grafana/pkg/services/quota/quotatest"
+	"github.com/grafana/grafana/pkg/services/secrets/database"
+	secretsManager "github.com/grafana/grafana/pkg/services/secrets/manager"
+	"github.com/grafana/grafana/pkg/services/user"
 	"github.com/grafana/grafana/pkg/setting"
-	"github.com/stretchr/testify/require"
+	"github.com/grafana/grafana/pkg/util"
 )
 
-// setupTestEnv initializes a store to used by the tests.
-func setupTestEnv(t *testing.T, baseIntervalSeconds int64) *store.DBstore {
+// SetupTestEnv initializes a store to used by the tests.
+func SetupTestEnv(tb testing.TB, baseInterval time.Duration) (*ngalert.AlertNG, *store.DBstore) {
+	tb.Helper()
+
 	cfg := setting.NewCfg()
-	// AlertNG is disabled by default and only if it's enabled
-	// its database migrations run and the relative database tables are created
-	cfg.FeatureToggles = map[string]bool{"ngalert": true}
-
-	ng := overrideAlertNGInRegistry(t, cfg)
-	ng.SQLStore = sqlstore.InitTestDB(t)
-
-	err := ng.Init()
-	require.NoError(t, err)
-	return &store.DBstore{SQLStore: ng.SQLStore, BaseInterval: time.Duration(baseIntervalSeconds) * time.Second}
-}
-
-func overrideAlertNGInRegistry(t *testing.T, cfg *setting.Cfg) ngalert.AlertNG {
-	ng := ngalert.AlertNG{
-		Cfg:           cfg,
-		RouteRegister: routing.NewRouteRegister(),
-		Log:           log.New("ngalert-test"),
+	cfg.UnifiedAlerting = setting.UnifiedAlertingSettings{
+		BaseInterval: setting.SchedulerBaseInterval,
 	}
+	// AlertNG database migrations run and the relative database tables are created only when it's enabled
+	cfg.UnifiedAlerting.Enabled = new(bool)
+	*cfg.UnifiedAlerting.Enabled = true
 
-	// hook for initialising the service after the Cfg is populated
-	// so that database migrations will run
-	overrideServiceFunc := func(descriptor registry.Descriptor) (*registry.Descriptor, bool) {
-		if _, ok := descriptor.Instance.(*ngalert.AlertNG); ok {
-			return &registry.Descriptor{
-				Name:         descriptor.Name,
-				Instance:     &ng,
-				InitPriority: descriptor.InitPriority,
-			}, true
-		}
-		return nil, false
-	}
+	m := metrics.NewNGAlert(prometheus.NewRegistry())
+	sqlStore := db.InitTestDB(tb)
+	secretsService := secretsManager.SetupTestService(tb, database.ProvideSecretsStore(sqlStore))
 
-	registry.RegisterOverride(overrideServiceFunc)
+	ac := acmock.New()
 
-	return ng
-}
-
-// createTestAlertDefinition creates a dummy alert definition to be used by the tests.
-func createTestAlertDefinition(t *testing.T, store *store.DBstore, intervalSeconds int64) *models.AlertDefinition {
-	cmd := models.SaveAlertDefinitionCommand{
-		OrgID:     1,
-		Title:     fmt.Sprintf("an alert definition %d", rand.Intn(1000)),
-		Condition: "A",
-		Data: []models.AlertQuery{
-			{
-				Model: json.RawMessage(`{
-						"datasource": "__expr__",
-						"type":"math",
-						"expression":"2 + 2 > 1"
-					}`),
-				RelativeTimeRange: models.RelativeTimeRange{
-					From: models.Duration(5 * time.Hour),
-					To:   models.Duration(3 * time.Hour),
-				},
-				RefID: "A",
-			},
+	tracer := tracing.InitializeTracerForTest()
+	bus := bus.ProvideBus(tracer)
+	folderStore := folderimpl.ProvideDashboardFolderStore(sqlStore)
+	dashboardService, dashboardStore := testutil.SetupDashboardService(tb, sqlStore, folderStore, cfg)
+	folderService := testutil.SetupFolderService(tb, cfg, sqlStore, dashboardStore, folderStore, bus)
+	ruleStore, err := store.ProvideDBStore(cfg, featuremgmt.WithFeatures(), sqlStore, folderService, &dashboards.FakeDashboardService{}, ac)
+	require.NoError(tb, err)
+	ng, err := ngalert.ProvideService(
+		cfg, featuremgmt.WithFeatures(), nil, nil, routing.NewRouteRegister(), sqlStore, nil, nil, nil, quotatest.New(false, nil),
+		secretsService, nil, m, folderService, ac, &dashboards.FakeDashboardService{}, nil, bus, ac,
+		annotationstest.NewFakeAnnotationsRepo(), &pluginstore.FakePluginStore{}, tracer, ruleStore, migration.NewFakeMigrationService(tb), nil,
+	)
+	require.NoError(tb, err)
+	return ng, &store.DBstore{
+		FeatureToggles: ng.FeatureToggles,
+		SQLStore:       ng.SQLStore,
+		Cfg: setting.UnifiedAlertingSettings{
+			BaseInterval: baseInterval * time.Second,
 		},
-		IntervalSeconds: &intervalSeconds,
+		Logger:           log.New("ngalert-test"),
+		DashboardService: dashboardService,
+		FolderService:    folderService,
 	}
-	err := store.SaveAlertDefinition(&cmd)
+}
+
+// CreateTestAlertRule creates a dummy alert definition to be used by the tests.
+func CreateTestAlertRule(t testing.TB, ctx context.Context, dbstore *store.DBstore, intervalSeconds int64, orgID int64) *models.AlertRule {
+	return CreateTestAlertRuleWithLabels(t, ctx, dbstore, intervalSeconds, orgID, nil)
+}
+
+func CreateTestAlertRuleWithLabels(t testing.TB, ctx context.Context, dbstore *store.DBstore, intervalSeconds int64, orgID int64, labels map[string]string) *models.AlertRule {
+	ruleGroup := fmt.Sprintf("ruleGroup-%s", util.GenerateShortUID())
+	folderUID := "namespace"
+	user := &user.SignedInUser{
+		UserID:         1,
+		OrgID:          orgID,
+		OrgRole:        org.RoleAdmin,
+		IsGrafanaAdmin: true,
+	}
+
+	ctx = appcontext.WithUser(ctx, user)
+	_, err := dbstore.FolderService.Create(ctx, &folder.CreateFolderCommand{OrgID: orgID, Title: "FOLDER-" + util.GenerateShortUID(), UID: folderUID, SignedInUser: user})
+	// var foldr *folder.Folder
+	if errors.Is(err, dashboards.ErrFolderWithSameUIDExists) || errors.Is(err, dashboards.ErrFolderVersionMismatch) {
+		_, err = dbstore.FolderService.Get(ctx, &folder.GetFolderQuery{OrgID: orgID, UID: &folderUID, SignedInUser: user})
+	}
 	require.NoError(t, err)
-	t.Logf("alert definition: %v with interval: %d created", cmd.Result.GetKey(), intervalSeconds)
-	return cmd.Result
+
+	_, err = dbstore.InsertAlertRules(ctx, []models.AlertRule{
+		{
+
+			ID:        0,
+			OrgID:     orgID,
+			Title:     fmt.Sprintf("an alert definition %s", util.GenerateShortUID()),
+			Condition: "A",
+			Data: []models.AlertQuery{
+				{
+					Model: json.RawMessage(`{
+										"datasourceUid": "__expr__",
+										"type":"math",
+										"expression":"2 + 2 > 1"
+									}`),
+					RelativeTimeRange: models.RelativeTimeRange{
+						From: models.Duration(5 * time.Hour),
+						To:   models.Duration(3 * time.Hour),
+					},
+					RefID: "A",
+				},
+			},
+			Labels:          labels,
+			Annotations:     map[string]string{"testAnnoKey": "testAnnoValue"},
+			IntervalSeconds: intervalSeconds,
+			NamespaceUID:    folderUID,
+			RuleGroup:       ruleGroup,
+			NoDataState:     models.NoData,
+			ExecErrState:    models.AlertingErrState,
+		},
+	})
+	require.NoError(t, err)
+
+	q := models.ListAlertRulesQuery{
+		OrgID:         orgID,
+		NamespaceUIDs: []string{folderUID},
+		RuleGroup:     ruleGroup,
+	}
+	ruleList, err := dbstore.ListAlertRules(ctx, &q)
+	require.NoError(t, err)
+	require.NotEmpty(t, ruleList)
+
+	rule := ruleList[0]
+	t.Logf("alert definition: %v with title: %q interval: %d folder: %s created", rule.GetKey(), rule.Title, rule.IntervalSeconds, folderUID)
+	return rule
 }

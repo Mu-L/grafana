@@ -1,10 +1,14 @@
-import { Reducer } from 'redux';
-import { PayloadAction, Action } from '@reduxjs/toolkit';
+import { AnyAction } from '@reduxjs/toolkit';
 import { cloneDeep } from 'lodash';
+import { Action } from 'redux';
+
+import { StoreState } from 'app/types';
+
+type GrafanaReducer<S = StoreState, A extends Action = AnyAction> = (state: S, action: A) => S;
 
 export interface Given<State> {
   givenReducer: (
-    reducer: Reducer<State, PayloadAction<any> | Action<any>>,
+    reducer: GrafanaReducer<State, AnyAction>,
     state: State,
     showDebugOutput?: boolean,
     disableDeepFreeze?: boolean
@@ -12,57 +16,50 @@ export interface Given<State> {
 }
 
 export interface When<State> {
-  whenActionIsDispatched: (action: PayloadAction<any> | Action<any>) => Then<State>;
+  whenActionIsDispatched: (action: AnyAction) => Then<State>;
 }
 
 export interface Then<State> {
   thenStateShouldEqual: (state: State) => When<State>;
   thenStatePredicateShouldEqual: (predicate: (resultingState: State) => boolean) => When<State>;
-  whenActionIsDispatched: (action: PayloadAction<any> | Action<any>) => Then<State>;
+  whenActionIsDispatched: (action: AnyAction) => Then<State>;
 }
 
-interface ObjectType extends Object {
-  [key: string]: any;
-}
+const isNotException = (object: unknown, propertyName: string) =>
+  typeof object === 'function'
+    ? propertyName !== 'caller' && propertyName !== 'callee' && propertyName !== 'arguments'
+    : true;
 
 export const deepFreeze = <T>(obj: T): T => {
-  Object.freeze(obj);
+  if (typeof obj === 'object') {
+    for (const key in obj) {
+      const prop = obj[key];
 
-  const isNotException = (object: any, propertyName: any) =>
-    typeof object === 'function'
-      ? propertyName !== 'caller' && propertyName !== 'callee' && propertyName !== 'arguments'
-      : true;
-  const hasOwnProp = Object.prototype.hasOwnProperty;
-
-  if (obj && obj instanceof Object) {
-    const object: ObjectType = obj;
-    Object.getOwnPropertyNames(object).forEach((propertyName) => {
-      const objectProperty: any = object[propertyName];
       if (
-        hasOwnProp.call(object, propertyName) &&
-        isNotException(object, propertyName) &&
-        objectProperty &&
-        (typeof objectProperty === 'object' || typeof objectProperty === 'function') &&
-        Object.isFrozen(objectProperty) === false
+        prop &&
+        Object.hasOwn(obj, key) &&
+        isNotException(obj, key) &&
+        (typeof prop === 'object' || typeof prop === 'function') &&
+        !Object.isFrozen(prop)
       ) {
-        deepFreeze(objectProperty);
+        deepFreeze(prop);
       }
-    });
+    }
   }
 
-  return obj;
+  return Object.freeze(obj);
 };
 
 interface ReducerTester<State> extends Given<State>, When<State>, Then<State> {}
 
 export const reducerTester = <State>(): Given<State> => {
-  let reducerUnderTest: Reducer<State, PayloadAction<any>>;
+  let reducerUnderTest: GrafanaReducer<State, AnyAction>;
   let resultingState: State;
   let initialState: State;
   let showDebugOutput = false;
 
   const givenReducer = (
-    reducer: Reducer<State, PayloadAction<any>>,
+    reducer: GrafanaReducer<State, AnyAction>,
     state: State,
     debug = false,
     disableDeepFreeze = false
@@ -77,7 +74,7 @@ export const reducerTester = <State>(): Given<State> => {
     return instance;
   };
 
-  const whenActionIsDispatched = (action: PayloadAction<any>): Then<State> => {
+  const whenActionIsDispatched = (action: AnyAction): Then<State> => {
     resultingState = reducerUnderTest(resultingState || initialState, action);
 
     return instance;

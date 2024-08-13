@@ -1,4 +1,3 @@
-import { css } from 'emotion';
 import React from 'react';
 
 interface MarkerProps {
@@ -10,15 +9,14 @@ interface MarkerProps {
 
 // An abstraction over a component rendered within a chart canvas.
 // Marker is rendered with DOM coords of the chart bounding box.
-export const Marker: React.FC<MarkerProps> = ({ x, y, children }) => {
+export const Marker = ({ x, y, children }: React.PropsWithChildren<MarkerProps>) => {
   return (
     <div
-      className={css`
-        position: absolute;
-        top: ${y}px;
-        left: ${x}px;
-        transform: translate3d(-50%, -50%, 0);
-      `}
+      style={{
+        position: 'absolute',
+        top: `${y}px`,
+        left: `${x}px`,
+      }}
     >
       {children}
     </div>

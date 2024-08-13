@@ -1,9 +1,11 @@
-import React, { FunctionComponent } from 'react';
-import { css, cx } from 'emotion';
+import { css, cx } from '@emotion/css';
+import React from 'react';
+
 import { SelectableValue } from '@grafana/data';
 import { Segment } from '@grafana/ui';
+
+import { MetricAggregation } from '../types';
 import { describeMetric } from '../utils';
-import { MetricAggregation } from './QueryEditor/MetricAggregationsEditor/aggregations';
 
 const noWrap = css`
   white-space: nowrap;
@@ -23,7 +25,7 @@ interface Props {
   value?: string;
 }
 
-export const MetricPicker: FunctionComponent<Props> = ({ options, onChange, className, value }) => {
+export const MetricPicker = ({ options, onChange, className, value }: Props) => {
   const selectedOption = options.find((option) => option.id === value);
 
   return (
@@ -32,7 +34,7 @@ export const MetricPicker: FunctionComponent<Props> = ({ options, onChange, clas
       options={toOptions(options)}
       onChange={onChange}
       placeholder="Select Metric"
-      value={!!selectedOption ? toOption(selectedOption) : null}
+      value={!!selectedOption ? toOption(selectedOption) : undefined}
     />
   );
 };

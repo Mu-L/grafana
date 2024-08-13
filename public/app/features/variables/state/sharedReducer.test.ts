@@ -1,7 +1,20 @@
-import cloneDeep from 'lodash/cloneDeep';
-import { LoadingState, VariableType } from '@grafana/data';
+import { cloneDeep } from 'lodash';
+
+import { BaseVariableModel, LoadingState, VariableType } from '@grafana/data';
 
 import { reducerTester } from '../../../../test/core/redux/reducerTester';
+import { variableAdapters } from '../adapters';
+import { createConstantVariableAdapter } from '../constant/adapter';
+import { initialConstantVariableModelState } from '../constant/reducer';
+import { ALL_VARIABLE_TEXT, ALL_VARIABLE_VALUE } from '../constants';
+import { changeVariableNameSucceeded } from '../editor/reducer';
+import { createQueryVariableAdapter } from '../query/adapter';
+import { initialQueryVariableModelState } from '../query/reducer';
+import { ConstantVariableModel, QueryVariableModel, VariableOption } from '../types';
+import { toVariablePayload } from '../utils';
+
+import { createConstantVariable } from './__tests__/fixtures';
+import { getVariableState, getVariableTestContext } from './helpers';
 import {
   addVariable,
   changeVariableOrder,
@@ -16,27 +29,18 @@ import {
   variableStateFetching,
   variableStateNotStarted,
 } from './sharedReducer';
-import { ConstantVariableModel, QueryVariableModel, VariableHide, VariableOption } from '../types';
-import { ALL_VARIABLE_TEXT, ALL_VARIABLE_VALUE, toVariablePayload, VariableIdentifier } from './types';
-import { variableAdapters } from '../adapters';
-import { createQueryVariableAdapter } from '../query/adapter';
-import { initialQueryVariableModelState } from '../query/reducer';
-import { getVariableState, getVariableTestContext } from './helpers';
-import { initialVariablesState, VariablesState } from './variablesReducer';
-import { changeVariableNameSucceeded } from '../editor/reducer';
-import { createConstantVariableAdapter } from '../constant/adapter';
-import { initialConstantVariableModelState } from '../constant/reducer';
+import { initialVariablesState, KeyedVariableIdentifier, VariablesState } from './types';
 
 variableAdapters.setInit(() => [createQueryVariableAdapter(), createConstantVariableAdapter()]);
 
 describe('sharedReducer', () => {
   describe('when addVariable is dispatched', () => {
     it('then state should be correct', () => {
-      const model: any = {
+      const model = {
         name: 'name from model',
-        type: 'type from model',
+        type: 'query',
         current: undefined,
-      };
+      } as unknown as BaseVariableModel;
 
       const expected: QueryVariableModel = {
         ...initialQueryVariableModelState,
@@ -44,8 +48,8 @@ describe('sharedReducer', () => {
         global: true,
         index: 0,
         name: 'name from model',
-        type: ('type from model' as unknown) as VariableType,
-        current: ({} as unknown) as VariableOption,
+        type: 'query',
+        current: {} as unknown as VariableOption,
       };
 
       const payload = toVariablePayload({ id: 'name from model', type: 'query' }, { global: true, index: 0, model });
@@ -61,13 +65,13 @@ describe('sharedReducer', () => {
 
   describe('when addVariable is dispatched for a constant model', () => {
     it('then state should be correct', () => {
-      const model: any = {
+      const model = {
         name: 'constant',
         type: 'constant',
         query: 'a constant',
         current: { selected: true, text: 'A', value: 'A' },
         options: [{ selected: true, text: 'A', value: 'A' }],
-      };
+      } as unknown as BaseVariableModel;
 
       const expected: ConstantVariableModel = {
         ...initialConstantVariableModelState,
@@ -94,37 +98,20 @@ describe('sharedReducer', () => {
 
   describe('when removeVariable is dispatched and reIndex is true', () => {
     it('then state should be correct', () => {
-      const initialState: VariablesState = getVariableState(3);
+      const initialState = getVariableState(3);
+
       const payload = toVariablePayload({ id: '1', type: 'query' }, { reIndex: true });
       reducerTester<VariablesState>()
         .givenReducer(sharedReducer, initialState)
         .whenActionIsDispatched(removeVariable(payload))
         .thenStateShouldEqual({
           '0': {
-            id: '0',
-            type: 'query',
-            name: 'Name-0',
-            hide: VariableHide.dontHide,
+            ...initialState['0'],
             index: 0,
-            label: 'Label-0',
-            skipUrlSync: false,
-            global: false,
-            state: LoadingState.NotStarted,
-            error: null,
-            description: null,
           },
           '2': {
-            id: '2',
-            type: 'query',
-            name: 'Name-2',
-            hide: VariableHide.dontHide,
+            ...initialState['2'],
             index: 1,
-            label: 'Label-2',
-            skipUrlSync: false,
-            global: false,
-            state: LoadingState.NotStarted,
-            error: null,
-            description: null,
           },
         });
     });
@@ -134,93 +121,108 @@ describe('sharedReducer', () => {
     it('then state should be correct', () => {
       const initialState: VariablesState = getVariableState(3);
       const payload = toVariablePayload({ id: '1', type: 'query' }, { reIndex: false });
+
       reducerTester<VariablesState>()
         .givenReducer(sharedReducer, initialState)
         .whenActionIsDispatched(removeVariable(payload))
         .thenStateShouldEqual({
-          '0': {
-            id: '0',
-            type: 'query',
-            name: 'Name-0',
-            hide: VariableHide.dontHide,
-            index: 0,
-            label: 'Label-0',
-            skipUrlSync: false,
-            global: false,
-            state: LoadingState.NotStarted,
-            error: null,
-            description: null,
-          },
-          '2': {
-            id: '2',
-            type: 'query',
-            name: 'Name-2',
-            hide: VariableHide.dontHide,
-            index: 2,
-            label: 'Label-2',
-            skipUrlSync: false,
-            global: false,
-            state: LoadingState.NotStarted,
-            error: null,
-            description: null,
-          },
+          '0': initialState['0'],
+          '2': initialState['2'],
         });
     });
   });
 
   describe('when duplicateVariable is dispatched', () => {
     it('then state should be correct', () => {
-      const initialState: VariablesState = getVariableState(3);
+      const initialState: VariablesState = getVariableState(3, -1, false, true);
       const payload = toVariablePayload({ id: '1', type: 'query' }, { newId: '11' });
       reducerTester<VariablesState>()
         .givenReducer(sharedReducer, initialState)
         .whenActionIsDispatched(duplicateVariable(payload))
         .thenStateShouldEqual({
-          '0': {
-            id: '0',
-            type: 'query',
-            name: 'Name-0',
-            hide: VariableHide.dontHide,
-            index: 0,
-            label: 'Label-0',
-            skipUrlSync: false,
-            global: false,
-            state: LoadingState.NotStarted,
-            error: null,
-            description: null,
-          },
-          '1': {
-            id: '1',
-            type: 'query',
-            name: 'Name-1',
-            hide: VariableHide.dontHide,
-            index: 1,
-            label: 'Label-1',
-            skipUrlSync: false,
-            global: false,
-            state: LoadingState.NotStarted,
-            error: null,
-            description: null,
-          },
-          '2': {
-            id: '2',
-            type: 'query',
-            name: 'Name-2',
-            hide: VariableHide.dontHide,
-            index: 2,
-            label: 'Label-2',
-            skipUrlSync: false,
-            global: false,
-            state: LoadingState.NotStarted,
-            error: null,
-            description: null,
-          },
+          ...initialState,
           '11': {
             ...initialQueryVariableModelState,
+            ...initialState['1'],
             id: '11',
             name: 'copy_of_Name-1',
             index: 3,
-            label: 'Label-1',
+          },
+        });
+    });
+
+    it('then state should be correct', () => {
+      const initialState: VariablesState = getVariableState(3, -1, false, true);
+      initialState['1'].name = 'copy_of_Name-1_2';
+      const payload = toVariablePayload({ id: '1', type: 'query' }, { newId: '11' });
+      reducerTester<VariablesState>()
+        .givenReducer(sharedReducer, initialState)
+        .whenActionIsDispatched(duplicateVariable(payload))
+        .thenStateShouldEqual({
+          ...initialState,
+          '11': {
+            ...initialQueryVariableModelState,
+            ...initialState['1'],
+            id: '11',
+            name: 'copy_of_copy_of_Name-1_2',
+            index: 3,
+          },
+        });
+    });
+
+    it('then state should be correct', () => {
+      const initialState: VariablesState = getVariableState(3, -1, false, true);
+      initialState['0'].name = 'Name-0';
+      initialState['1'].name = 'copy_of_Name-0_2';
+      const payload = toVariablePayload({ id: '0', type: 'query' }, { newId: '01' });
+      reducerTester<VariablesState>()
+        .givenReducer(sharedReducer, initialState)
+        .whenActionIsDispatched(duplicateVariable(payload))
+        .thenStateShouldEqual({
+          ...initialState,
+          '01': {
+            ...initialQueryVariableModelState,
+            ...initialState['0'],
+            id: '01',
+            name: 'copy_of_Name-0_3',
+            index: 3,
+          },
+        });
+    });
+
+    it('then state should be correct', () => {
+      const initialState: VariablesState = getVariableState(3, -1, false, true);
+      initialState['1'].name = 'copy_of_Name-1_2';
+      const duplicateOne = toVariablePayload({ id: '1', type: 'query' }, { newId: '11' });
+      const duplicateTwo = toVariablePayload({ id: '1', type: 'query' }, { newId: '12' });
+      const duplicateThree = toVariablePayload({ id: '1', type: 'query' }, { newId: '13' });
+      reducerTester<VariablesState>()
+        .givenReducer(sharedReducer, initialState)
+        .whenActionIsDispatched(duplicateVariable(duplicateOne))
+        .whenActionIsDispatched(duplicateVariable(duplicateTwo))
+        .whenActionIsDispatched(duplicateVariable(duplicateThree))
+        .thenStateShouldEqual({
+          ...initialState,
+          '11': {
+            ...initialQueryVariableModelState,
+            ...initialState['1'],
+            id: '11',
+            name: 'copy_of_copy_of_Name-1_2',
+            index: 3,
+          },
+          '12': {
+            ...initialQueryVariableModelState,
+            ...initialState['1'],
+            id: '12',
+            name: 'copy_of_copy_of_Name-1_2_1',
+            index: 4,
+          },
+          '13': {
+            ...initialQueryVariableModelState,
+            ...initialState['1'],
+            id: '13',
+            name: 'copy_of_copy_of_Name-1_2_2',
+            index: 5,
           },
         });
     });
@@ -229,49 +231,44 @@ describe('sharedReducer', () => {
   describe('when changeVariableOrder is dispatched', () => {
     it('then state should be correct', () => {
       const initialState: VariablesState = getVariableState(3);
-      const payload = toVariablePayload({ id: '1', type: 'query' }, { fromIndex: 1, toIndex: 0 });
+      const payload = toVariablePayload({ id: '2', type: 'query' }, { fromIndex: 2, toIndex: 0 });
       reducerTester<VariablesState>()
         .givenReducer(sharedReducer, initialState)
         .whenActionIsDispatched(changeVariableOrder(payload))
         .thenStateShouldEqual({
           '0': {
-            id: '0',
-            type: 'query',
-            name: 'Name-0',
-            hide: VariableHide.dontHide,
+            ...initialState['0'],
             index: 1,
-            label: 'Label-0',
-            skipUrlSync: false,
-            global: false,
-            state: LoadingState.NotStarted,
-            error: null,
-            description: null,
           },
           '1': {
-            id: '1',
-            type: 'query',
-            name: 'Name-1',
-            hide: VariableHide.dontHide,
-            index: 0,
-            label: 'Label-1',
-            skipUrlSync: false,
-            global: false,
-            state: LoadingState.NotStarted,
-            error: null,
-            description: null,
+            ...initialState['1'],
+            index: 2,
           },
           '2': {
-            id: '2',
-            type: 'query',
-            name: 'Name-2',
-            hide: VariableHide.dontHide,
+            ...initialState['2'],
+            index: 0,
+          },
+        });
+    });
+
+    it('then state should be correct', () => {
+      const initialState: VariablesState = getVariableState(3);
+      const payload = toVariablePayload({ id: '0', type: 'query' }, { fromIndex: 0, toIndex: 2 });
+      reducerTester<VariablesState>()
+        .givenReducer(sharedReducer, initialState)
+        .whenActionIsDispatched(changeVariableOrder(payload))
+        .thenStateShouldEqual({
+          '0': {
+            ...initialState['0'],
             index: 2,
-            label: 'Label-2',
-            skipUrlSync: false,
-            global: false,
-            state: LoadingState.NotStarted,
-            error: null,
-            description: null,
+          },
+          '1': {
+            ...initialState['1'],
+            index: 0,
+          },
+          '2': {
+            ...initialState['2'],
+            index: 1,
           },
         });
     });
@@ -294,7 +291,7 @@ describe('sharedReducer', () => {
         .whenActionIsDispatched(setCurrentVariableValue(payload))
         .thenStateShouldEqual({
           ...initialState,
-          '0': ({
+          '0': {
             ...initialState[0],
             options: [
               { selected: false, text: 'All', value: '$__all' },
@@ -302,7 +299,7 @@ describe('sharedReducer', () => {
               { selected: true, text: 'B', value: 'B' },
             ],
             current: { selected: true, text: ['A', 'B'], value: ['A', 'B'] },
-          } as unknown) as QueryVariableModel,
+          } as unknown as QueryVariableModel,
         });
     });
   });
@@ -324,7 +321,7 @@ describe('sharedReducer', () => {
         .whenActionIsDispatched(setCurrentVariableValue(payload))
         .thenStateShouldEqual({
           ...initialState,
-          '0': ({
+          '0': {
             ...initialState[0],
             options: [
               { selected: false, text: 'All', value: '$__all' },
@@ -332,7 +329,7 @@ describe('sharedReducer', () => {
               { selected: true, text: 'B', value: 'B' },
             ],
             current: { selected: true, text: 'A + B', value: ['A', 'B'] },
-          } as unknown) as QueryVariableModel,
+          } as unknown as QueryVariableModel,
         });
     });
   });
@@ -354,7 +351,7 @@ describe('sharedReducer', () => {
         .whenActionIsDispatched(setCurrentVariableValue(payload))
         .thenStateShouldEqual({
           ...initialState,
-          '0': ({
+          '0': {
             ...initialState[0],
             options: [
               { selected: true, text: 'All', value: '$__all' },
@@ -362,7 +359,7 @@ describe('sharedReducer', () => {
               { selected: false, text: 'B', value: 'B' },
             ],
             current: { selected: true, text: 'All', value: ['$__all'] },
-          } as unknown) as QueryVariableModel,
+          } as unknown as QueryVariableModel,
         });
     });
   });
@@ -380,11 +377,11 @@ describe('sharedReducer', () => {
         .whenActionIsDispatched(variableStateNotStarted(payload))
         .thenStateShouldEqual({
           ...initialState,
-          '0': ({
+          '0': {
             ...initialState[0],
             state: LoadingState.NotStarted,
             error: null,
-          } as unknown) as QueryVariableModel,
+          } as unknown as QueryVariableModel,
         });
     });
   });
@@ -402,11 +399,11 @@ describe('sharedReducer', () => {
         .whenActionIsDispatched(variableStateFetching(payload))
         .thenStateShouldEqual({
           ...initialState,
-          '0': ({
+          '0': {
             ...initialState[0],
             state: LoadingState.Loading,
             error: null,
-          } as unknown) as QueryVariableModel,
+          } as unknown as QueryVariableModel,
         });
     });
   });
@@ -424,11 +421,11 @@ describe('sharedReducer', () => {
         .whenActionIsDispatched(variableStateCompleted(payload))
         .thenStateShouldEqual({
           ...initialState,
-          '0': ({
+          '0': {
             ...initialState[0],
             state: LoadingState.Done,
             error: null,
-          } as unknown) as QueryVariableModel,
+          } as unknown as QueryVariableModel,
         });
     });
   });
@@ -443,11 +440,11 @@ describe('sharedReducer', () => {
         .whenActionIsDispatched(variableStateFailed(payload))
         .thenStateShouldEqual({
           ...initialState,
-          '0': ({
+          '0': {
             ...initialState[0],
             state: LoadingState.Error,
             error: 'Some error',
-          } as unknown) as QueryVariableModel,
+          } as unknown as QueryVariableModel,
         });
     });
   });
@@ -498,8 +495,9 @@ describe('sharedReducer', () => {
       const constantAdapter = createConstantVariableAdapter();
       const { initialState: constantAdapterState } = getVariableTestContext(constantAdapter);
       const newType = 'constant' as VariableType;
-      const identifier: VariableIdentifier = { id: '0', type: 'query' };
+      const identifier: KeyedVariableIdentifier = { id: '0', type: 'query', rootStateKey: 'key' };
       const payload = toVariablePayload(identifier, { newType });
+
       reducerTester<VariablesState>()
         .givenReducer(sharedReducer, cloneDeep(queryAdapterState))
         .whenActionIsDispatched(changeVariableNameSucceeded(toVariablePayload(identifier, { newName: 'test' })))
@@ -514,10 +512,14 @@ describe('sharedReducer', () => {
           ...constantAdapterState,
           '0': {
             ...constantAdapterState[0],
-            name: 'test',
-            description: 'new description',
-            label: 'new label',
-            type: 'constant',
+            ...createConstantVariable({
+              type: 'constant',
+              rootStateKey: 'key',
+              name: 'test',
+              description: 'new description',
+              label: 'new label',
+              current: {} as VariableOption,
+            }),
           },
         });
     });

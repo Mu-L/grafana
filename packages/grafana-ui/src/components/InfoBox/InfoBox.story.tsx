@@ -1,12 +1,13 @@
+import { Meta, StoryFn } from '@storybook/react';
 import React from 'react';
-import { FeatureState } from '@grafana/data';
-import { InfoBox, FeatureInfoBox } from '@grafana/ui';
-import mdx from './InfoBox.mdx';
-import { Story } from '@storybook/react';
-import { FeatureInfoBoxProps } from './FeatureInfoBox';
-import { InfoBoxProps } from './InfoBox';
 
-export default {
+import { FeatureState } from '@grafana/data';
+import { InfoBox, FeatureInfoBox, VerticalGroup } from '@grafana/ui';
+
+import { FeatureInfoBoxProps } from './FeatureInfoBox';
+import mdx from './InfoBox.mdx';
+
+const meta: Meta = {
   title: 'Layout/InfoBox',
   component: InfoBox,
   decorators: [],
@@ -14,16 +15,16 @@ export default {
     docs: {
       page: mdx,
     },
+    knobs: {
+      disable: true,
+    },
+    controls: {
+      exclude: ['onDismiss', 'children'],
+    },
   },
   argTypes: {
-    onDismiss: { action: 'Dismissed' },
     featureState: {
       control: { type: 'select', options: ['alpha', 'beta', undefined] },
-    },
-    children: {
-      table: {
-        disable: true,
-      },
     },
   },
 };
@@ -44,10 +45,27 @@ const defaultProps: FeatureInfoBoxProps = {
   ),
 };
 
-const InfoBoxTemplate: Story<InfoBoxProps> = (args) => <InfoBox {...args} />;
+const InfoBoxTemplate: StoryFn<typeof InfoBox> = (args) => {
+  return (
+    <VerticalGroup>
+      <div>Deprecrated component, use Alert with info severity</div>
+      <InfoBox {...args} />
+    </VerticalGroup>
+  );
+};
 export const infoBox = InfoBoxTemplate.bind({});
 infoBox.args = defaultProps;
 
-const FeatureInfoBoxTemplate: Story<FeatureInfoBoxProps> = (args) => <FeatureInfoBox {...args}></FeatureInfoBox>;
+const FeatureInfoBoxTemplate: StoryFn<typeof FeatureInfoBox> = (args) => {
+  return (
+    <VerticalGroup>
+      <div>Deprecrated component, use Alert with info severity</div>
+      <FeatureInfoBox {...args} />
+    </VerticalGroup>
+  );
+};
+
 export const featureInfoBox = FeatureInfoBoxTemplate.bind({});
 featureInfoBox.args = defaultProps;
+
+export default meta;

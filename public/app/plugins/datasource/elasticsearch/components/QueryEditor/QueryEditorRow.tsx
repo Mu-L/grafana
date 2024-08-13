@@ -1,8 +1,9 @@
-import { GrafanaTheme } from '@grafana/data';
-import { IconButton, InlineFieldRow, InlineLabel, InlineSegmentGroup, stylesFactory, useTheme } from '@grafana/ui';
-import { css } from 'emotion';
+import { css } from '@emotion/css';
 import { noop } from 'lodash';
-import React, { FunctionComponent } from 'react';
+import React, { PropsWithChildren } from 'react';
+
+import { GrafanaTheme2 } from '@grafana/data';
+import { IconButton, InlineFieldRow, InlineLabel, InlineSegmentGroup, useStyles2 } from '@grafana/ui';
 
 interface Props {
   label: string;
@@ -11,15 +12,14 @@ interface Props {
   hidden?: boolean;
 }
 
-export const QueryEditorRow: FunctionComponent<Props> = ({
+export const QueryEditorRow = ({
   children,
   label,
   onRemoveClick,
   onHideClick,
   hidden = false,
-}) => {
-  const theme = useTheme();
-  const styles = getStyles(theme);
+}: PropsWithChildren<Props>) => {
+  const styles = useStyles2(getStyles);
 
   return (
     <InlineFieldRow>
@@ -31,21 +31,19 @@ export const QueryEditorRow: FunctionComponent<Props> = ({
               <IconButton
                 name={hidden ? 'eye-slash' : 'eye'}
                 onClick={onHideClick}
-                surface="header"
                 size="sm"
                 aria-pressed={hidden}
-                aria-label="hide metric"
                 className={styles.icon}
+                tooltip="Hide row"
               />
             )}
             <IconButton
               name="trash-alt"
-              surface="header"
               size="sm"
               className={styles.icon}
               onClick={onRemoveClick || noop}
               disabled={!onRemoveClick}
-              aria-label="remove metric"
+              tooltip="Remove row"
             />
           </span>
         </InlineLabel>
@@ -55,14 +53,14 @@ export const QueryEditorRow: FunctionComponent<Props> = ({
   );
 };
 
-const getStyles = stylesFactory((theme: GrafanaTheme) => {
+const getStyles = (theme: GrafanaTheme2) => {
   return {
     iconWrapper: css`
       display: flex;
     `,
     icon: css`
-      color: ${theme.colors.textWeak};
-      margin-left: ${theme.spacing.xxs};
+      color: ${theme.colors.text.secondary};
+      margin-left: ${theme.spacing(0.25)};
     `,
   };
-});
+};

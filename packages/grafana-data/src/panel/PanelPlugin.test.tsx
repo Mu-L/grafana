@@ -1,7 +1,15 @@
 import React from 'react';
-import { identityOverrideProcessor, standardEditorsRegistry, standardFieldConfigEditorRegistry } from '../field';
+
+import { PanelOptionsEditorBuilder } from '..';
+import {
+  identityOverrideProcessor,
+  standardEditorsRegistry,
+  StandardEditorsRegistryItem,
+  standardFieldConfigEditorRegistry,
+} from '../field';
+import { FieldConfigProperty, FieldConfigPropertyItem } from '../types';
+
 import { PanelPlugin } from './PanelPlugin';
-import { FieldConfigProperty } from '../types';
 
 describe('PanelPlugin', () => {
   describe('declarative options', () => {
@@ -16,14 +24,14 @@ describe('PanelPlugin', () => {
             id: FieldConfigProperty.Max,
             path: 'max',
           },
-        ] as any;
+        ] as FieldConfigPropertyItem[];
       });
       standardEditorsRegistry.setInit(() => {
         return [
           {
             id: 'number',
           },
-        ] as any;
+        ] as StandardEditorsRegistryItem[];
       });
     });
 
@@ -70,8 +78,12 @@ describe('PanelPlugin', () => {
         });
       });
 
-      expect(panel.optionEditors).toBeDefined();
-      expect(panel.optionEditors!.list()).toHaveLength(1);
+      const supplier = panel.getPanelOptionsSupplier();
+      expect(supplier).toBeDefined();
+
+      const builder = new PanelOptionsEditorBuilder();
+      supplier(builder, { data: [] });
+      expect(builder.getItems()).toHaveLength(1);
     });
   });
 
@@ -180,6 +192,27 @@ describe('PanelPlugin', () => {
         };
 
         expect(panel.fieldConfigDefaults.defaults.custom).toEqual(expectedDefaults);
+      });
+
+      test('throw error with array fieldConfigs', () => {
+        const panel = new PanelPlugin(() => {
+          return <div>Panel</div>;
+        });
+
+        panel.useFieldConfig({
+          useCustomConfig: (builder) => {
+            builder.addCustomEditor({
+              id: 'somethingUnique',
+              path: 'numericOption[0]',
+              name: 'Option editor',
+              description: 'Option editor description',
+              defaultValue: 10,
+            } as FieldConfigPropertyItem);
+          },
+        });
+        expect(() => panel.fieldConfigRegistry).toThrowErrorMatchingInlineSnapshot(
+          `"[undefined] Field config paths do not support arrays: custom.somethingUnique"`
+        );
       });
 
       test('default values for nested paths', () => {

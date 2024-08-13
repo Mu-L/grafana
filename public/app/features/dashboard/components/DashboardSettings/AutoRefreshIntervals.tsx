@@ -1,28 +1,30 @@
-import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+
 import { Input, defaultIntervals, Field } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
 
 import { getTimeSrv } from '../../services/TimeSrv';
 
 export interface Props {
-  refreshIntervals: string[];
+  refreshIntervals?: string[];
   onRefreshIntervalChange: (interval: string[]) => void;
   getIntervalsFunc?: typeof getValidIntervals;
   validateIntervalsFunc?: typeof validateIntervals;
 }
 
-export const AutoRefreshIntervals: FC<Props> = ({
+export const AutoRefreshIntervals = ({
   refreshIntervals,
   onRefreshIntervalChange,
   getIntervalsFunc = getValidIntervals,
   validateIntervalsFunc = validateIntervals,
-}) => {
+}: Props) => {
   const [intervals, setIntervals] = useState<string[]>(getIntervalsFunc(refreshIntervals ?? defaultIntervals));
   const [invalidIntervalsMessage, setInvalidIntervalsMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const intervals = getIntervalsFunc(refreshIntervals ?? defaultIntervals);
     setIntervals(intervals);
-  }, [refreshIntervals]);
+  }, [getIntervalsFunc, refreshIntervals]);
 
   const intervalsString = useMemo(() => {
     if (!Array.isArray(intervals)) {
@@ -52,17 +54,21 @@ export const AutoRefreshIntervals: FC<Props> = ({
 
       setInvalidIntervalsMessage(invalidMessage);
     },
-    [intervals, onRefreshIntervalChange, setInvalidIntervalsMessage]
+    [getIntervalsFunc, intervals, onRefreshIntervalChange, validateIntervalsFunc]
   );
 
   return (
     <Field
-      label="Auto refresh"
-      description="Define the auto refresh intervals that should be available in the auto refresh dropdown"
+      label={t('dashboard-settings.general.auto-refresh-label', 'Auto refresh')}
+      description={t(
+        'dashboard-settings.general.auto-refresh-description',
+        'Define the auto refresh intervals that should be available in the auto refresh list.'
+      )}
       error={invalidIntervalsMessage}
       invalid={!!invalidIntervalsMessage}
     >
       <Input
+        id="auto-refresh-input"
         invalid={!!invalidIntervalsMessage}
         value={intervalsString}
         onChange={onIntervalsChange}
@@ -80,7 +86,7 @@ export const validateIntervals = (
     getValidIntervals(intervals, dependencies);
     return null;
   } catch (err) {
-    return err.message;
+    return err instanceof Error ? err.message : 'Invalid intervals';
   }
 };
 

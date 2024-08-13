@@ -1,51 +1,63 @@
 import React, { ChangeEvent } from 'react';
-import {
-  Alert,
-  Button,
-  Container,
-  CustomScrollbar,
-  stylesFactory,
-  Themeable,
-  FeatureInfoBox,
-  useTheme,
-  VerticalGroup,
-  withTheme,
-  Input,
-  IconButton,
-} from '@grafana/ui';
+import { DragDropContext, Droppable, DropResult } from 'react-beautiful-dnd';
+import { Unsubscribable } from 'rxjs';
+
 import {
   DataFrame,
   DataTransformerConfig,
-  DocsId,
-  GrafanaTheme,
   PanelData,
   SelectableValue,
   standardTransformersRegistry,
+  TransformerCategory,
 } from '@grafana/data';
-import { Card, CardProps } from '../../../../core/components/Card/Card';
-import { css } from 'emotion';
 import { selectors } from '@grafana/e2e-selectors';
-import { Unsubscribable } from 'rxjs';
-import { PanelModel } from '../../state';
-import { getDocsLink } from 'app/core/utils/docsLinks';
-import { DragDropContext, Droppable, DropResult } from 'react-beautiful-dnd';
-import { TransformationOperationRows } from './TransformationOperationRows';
-import { TransformationsEditorTransformation } from './types';
-import { PanelNotSupported } from '../PanelEditor/PanelNotSupported';
-import { AppNotificationSeverity } from '../../../../types';
-import { LocalStorageValueProvider } from 'app/core/components/LocalStorageValueProvider';
+import { reportInteraction } from '@grafana/runtime';
+import {
+  Button,
+  ConfirmModal,
+  Container,
+  CustomScrollbar,
+  Themeable,
+  withTheme,
+  IconButton,
+  ButtonGroup,
+  Box,
+  Text,
+  Stack,
+} from '@grafana/ui';
+import config from 'app/core/config';
+import { Trans } from 'app/core/internationalization';
 
-const LOCAL_STORAGE_KEY = 'dashboard.components.TransformationEditor.featureInfoBox.isDismissed';
+import { PanelModel } from '../../state';
+import { PanelNotSupported } from '../PanelEditor/PanelNotSupported';
+
+import { TransformationOperationRows } from './TransformationOperationRows';
+import { TransformationPicker } from './TransformationPicker';
+import { TransformationPickerNg } from './TransformationPickerNg';
+import { TransformationsEditorTransformation } from './types';
 
 interface TransformationsEditorProps extends Themeable {
   panel: PanelModel;
 }
 
+const VIEW_ALL_VALUE = 'viewAll';
+export type viewAllType = 'viewAll';
+export type FilterCategory = TransformerCategory | viewAllType;
+
+export interface TransformationData {
+  series: DataFrame[];
+  annotations?: DataFrame[];
+}
+
 interface State {
-  data: DataFrame[];
+  data: TransformationData;
   transformations: TransformationsEditorTransformation[];
   search: string;
   showPicker?: boolean;
+  scrollTop?: number;
+  showRemoveAllModal?: boolean;
+  selectedFilter?: FilterCategory;
+  showIllustrations?: boolean;
 }
 
 class UnThemedTransformationsEditor extends React.PureComponent<TransformationsEditorProps, State> {
@@ -61,8 +73,12 @@ class UnThemedTransformationsEditor extends React.PureComponent<TransformationsE
         transformation: t,
         id: ids[i],
       })),
-      data: [],
+      data: {
+        series: [],
+      },
       search: '',
+      selectedFilter: VIEW_ALL_VALUE,
+      showIllustrations: true,
     };
   }
 
@@ -111,7 +127,7 @@ class UnThemedTransformationsEditor extends React.PureComponent<TransformationsE
       .getQueryRunner()
       .getData({ withTransforms: false, withFieldConfig: false })
       .subscribe({
-        next: (panelData: PanelData) => this.setState({ data: panelData.series }),
+        next: (panelData: PanelData) => this.setState({ data: panelData }),
       });
   }
 
@@ -121,12 +137,31 @@ class UnThemedTransformationsEditor extends React.PureComponent<TransformationsE
     }
   }
 
+  componentDidUpdate(prevProps: Readonly<TransformationsEditorProps>, prevState: Readonly<State>): void {
+    if (config.featureToggles.transformationsRedesign) {
+      const prevHasTransforms = prevState.transformations.length > 0;
+      const prevShowPicker = !prevHasTransforms || prevState.showPicker;
+
+      const currentHasTransforms = this.state.transformations.length > 0;
+      const currentShowPicker = !currentHasTransforms || this.state.showPicker;
+
+      if (prevShowPicker !== currentShowPicker) {
+        // kindOfZero will be a random number between 0 and 0.5. It will be rounded to 0 by the scrollable component.
+        // We cannot always use 0 as it will not trigger a rerender of the scrollable component consistently
+        // due to React changes detection algo.
+        const kindOfZero = Math.random() / 2;
+
+        this.setState({ scrollTop: currentShowPicker ? kindOfZero : Number.MAX_SAFE_INTEGER });
+      }
+    }
+  }
+
   onChange(transformations: TransformationsEditorTransformation[]) {
     this.setState({ transformations });
     this.props.panel.setTransformations(transformations.map((t) => t.transformation));
   }
 
-  // Transformation uid are stored in a name-X form. name is NOT unique hence we need to parse the ids and increase X
+  // Transformation UIDs are stored in a name-X form. name is NOT unique hence we need to parse the IDs and increase X
   // for transformations with the same name
   getTransformationNextId = (name: string) => {
     const { transformations } = this.state;
@@ -141,6 +176,15 @@ class UnThemedTransformationsEditor extends React.PureComponent<TransformationsE
   };
 
   onTransformationAdd = (selectable: SelectableValue<string>) => {
+    let eventName = 'panel_editor_tabs_transformations_management';
+    if (config.featureToggles.transformationsRedesign) {
+      eventName = 'transformations_redesign_' + eventName;
+    }
+
+    reportInteraction(eventName, {
+      action: 'add',
+      transformationId: selectable.value,
+    });
     const { transformations } = this.state;
 
     const nextId = this.getTransformationNextId(selectable.value!);
@@ -157,18 +201,41 @@ class UnThemedTransformationsEditor extends React.PureComponent<TransformationsE
     ]);
   };
 
-  onTransformationChange = (idx: number, config: DataTransformerConfig) => {
+  onTransformationChange = (idx: number, dataConfig: DataTransformerConfig) => {
     const { transformations } = this.state;
     const next = Array.from(transformations);
-    next[idx].transformation = config;
+    let eventName = 'panel_editor_tabs_transformations_management';
+    if (config.featureToggles.transformationsRedesign) {
+      eventName = 'transformations_redesign_' + eventName;
+    }
+
+    reportInteraction(eventName, {
+      action: 'change',
+      transformationId: next[idx].transformation.id,
+    });
+    next[idx].transformation = dataConfig;
     this.onChange(next);
   };
 
   onTransformationRemove = (idx: number) => {
     const { transformations } = this.state;
     const next = Array.from(transformations);
+    let eventName = 'panel_editor_tabs_transformations_management';
+    if (config.featureToggles.transformationsRedesign) {
+      eventName = 'transformations_redesign_' + eventName;
+    }
+
+    reportInteraction(eventName, {
+      action: 'remove',
+      transformationId: next[idx].transformation.id,
+    });
     next.splice(idx, 1);
     this.onChange(next);
+  };
+
+  onTransformationRemoveAll = () => {
+    this.onChange([]);
+    this.setState({ showRemoveAllModal: false });
   };
 
   onDragEnd = (result: DropResult) => {
@@ -187,6 +254,41 @@ class UnThemedTransformationsEditor extends React.PureComponent<TransformationsE
     const [removed] = update.splice(startIndex, 1);
     update.splice(endIndex, 0, removed);
     this.onChange(update);
+  };
+
+  renderEmptyMessage = () => {
+    return (
+      <Box alignItems="center" padding={4}>
+        <Stack direction="column" alignItems="center" gap={2}>
+          <Text element="h3" textAlignment="center">
+            <Trans key="transformations.empty.add-transformation-header">Start transforming data</Trans>
+          </Text>
+          <Text
+            element="p"
+            textAlignment="center"
+            data-testid={selectors.components.Transforms.noTransformationsMessage}
+          >
+            <Trans key="transformations.empty.add-transformation-body">
+              Transformations allow data to be changed in various ways before your visualization is shown.
+              <br />
+              This includes joining data together, renaming fields, making calculations, formatting data for display,
+              and more.
+            </Trans>
+          </Text>
+          <Button
+            icon="plus"
+            variant="primary"
+            size="md"
+            onClick={() => {
+              this.setState({ showPicker: true });
+            }}
+            data-testid={selectors.components.Transforms.addTransformationButton}
+          >
+            Add transformation
+          </Button>
+        </Stack>
+      </Box>
+    );
   };
 
   renderTransformationEditors = () => {
@@ -214,24 +316,46 @@ class UnThemedTransformationsEditor extends React.PureComponent<TransformationsE
   };
 
   renderTransformsPicker() {
+    let { showPicker } = this.state;
     const { transformations, search } = this.state;
+    const { transformationsRedesign } = config.featureToggles;
+    const noTransforms = !transformations?.length;
+    const hasTransforms = transformations.length > 0;
     let suffix: React.ReactNode = null;
-    let xforms = standardTransformersRegistry.list();
+    let xforms = standardTransformersRegistry.list().sort((a, b) => (a.name > b.name ? 1 : b.name > a.name ? -1 : 0));
+
+    // In the case we're not on the transformation
+    // redesign and there are no transformations
+    // then we show the picker in that case
+    if (!transformationsRedesign && noTransforms) {
+      showPicker = true;
+    }
+
+    if (this.state.selectedFilter !== VIEW_ALL_VALUE) {
+      xforms = xforms.filter(
+        (t) =>
+          t.categories &&
+          this.state.selectedFilter &&
+          t.categories.has(this.state.selectedFilter as TransformerCategory)
+      );
+    }
+
     if (search) {
       const lower = search.toLowerCase();
       const filtered = xforms.filter((t) => {
         const txt = (t.name + t.description).toLowerCase();
         return txt.indexOf(lower) >= 0;
       });
+
       suffix = (
         <>
           {filtered.length} / {xforms.length} &nbsp;&nbsp;
           <IconButton
             name="times"
-            surface="header"
             onClick={() => {
               this.setState({ search: '' });
             }}
+            tooltip="Clear search"
           />
         </>
       );
@@ -239,92 +363,106 @@ class UnThemedTransformationsEditor extends React.PureComponent<TransformationsE
       xforms = filtered;
     }
 
-    const noTransforms = !transformations?.length;
-    const showPicker = noTransforms || this.state.showPicker;
     if (!suffix && showPicker && !noTransforms) {
       suffix = (
         <IconButton
           name="times"
-          surface="header"
           onClick={() => {
             this.setState({ showPicker: false });
           }}
+          tooltip="Close picker"
         />
       );
     }
 
+    // If we're in the transformation redesign
+    // we have the add transformation add the
+    // delete all control
+    let picker = null;
+    let deleteAll = null;
+    if (transformationsRedesign) {
+      picker = (
+        <TransformationPickerNg
+          noTransforms={noTransforms}
+          search={search}
+          suffix={suffix}
+          xforms={xforms}
+          setState={this.setState.bind(this)}
+          onSearchChange={this.onSearchChange}
+          onSearchKeyDown={this.onSearchKeyDown}
+          onTransformationAdd={this.onTransformationAdd}
+          data={this.state.data.series}
+          selectedFilter={this.state.selectedFilter}
+          showIllustrations={this.state.showIllustrations}
+        />
+      );
+
+      deleteAll = (
+        <>
+          <Button
+            icon="times"
+            variant="secondary"
+            onClick={() => this.setState({ showRemoveAllModal: true })}
+            style={{ marginLeft: this.props.theme.spacing.md }}
+          >
+            Delete all transformations
+          </Button>
+          <ConfirmModal
+            isOpen={Boolean(this.state.showRemoveAllModal)}
+            title="Delete all transformations?"
+            body="By deleting all transformations, you will go back to the main selection screen."
+            confirmText="Delete all"
+            onConfirm={() => this.onTransformationRemoveAll()}
+            onDismiss={() => this.setState({ showRemoveAllModal: false })}
+          />
+        </>
+      );
+    }
+    // Otherwise we use the old picker
+    else {
+      picker = (
+        <TransformationPicker
+          noTransforms={noTransforms}
+          search={search}
+          suffix={suffix}
+          xforms={xforms}
+          onSearchChange={this.onSearchChange}
+          onSearchKeyDown={this.onSearchKeyDown}
+          onTransformationAdd={this.onTransformationAdd}
+        />
+      );
+    }
+
+    // Compose actions, if we're in the
+    // redesign a "Delete All Transformations"
+    // button (with confirm modal) is added
+    const actions = (
+      <ButtonGroup>
+        <Button
+          icon="plus"
+          variant="secondary"
+          onClick={() => {
+            this.setState({ showPicker: true });
+          }}
+          data-testid={selectors.components.Transforms.addTransformationButton}
+        >
+          Add another transformation
+        </Button>
+        {deleteAll}
+      </ButtonGroup>
+    );
+
     return (
       <>
-        {noTransforms && (
-          <Container grow={1}>
-            <LocalStorageValueProvider<boolean> storageKey={LOCAL_STORAGE_KEY} defaultValue={false}>
-              {(isDismissed, onDismiss) => {
-                if (isDismissed) {
-                  return null;
-                }
-
-                return (
-                  <FeatureInfoBox
-                    title="Transformations"
-                    className={css`
-                      margin-bottom: ${this.props.theme.spacing.lg};
-                    `}
-                    onDismiss={() => {
-                      onDismiss(true);
-                    }}
-                    url={getDocsLink(DocsId.Transformations)}
-                  >
-                    <p>
-                      Transformations allow you to join, calculate, re-order, hide and rename your query results before
-                      being visualized. <br />
-                      Many transforms are not suitable if you&apos;re using the Graph visualization as it currently only
-                      supports time series. <br />
-                      It can help to switch to Table visualization to understand what a transformation is doing. <br />
-                    </p>
-                  </FeatureInfoBox>
-                );
-              }}
-            </LocalStorageValueProvider>
-          </Container>
-        )}
-        {showPicker ? (
-          <VerticalGroup>
-            <Input
-              aria-label={selectors.components.Transforms.searchInput}
-              value={search ?? ''}
-              autoFocus={!noTransforms}
-              placeholder="Add transformation"
-              onChange={this.onSearchChange}
-              onKeyDown={this.onSearchKeyDown}
-              suffix={suffix}
-            />
-
-            {xforms.map((t) => {
-              return (
-                <TransformationCard
-                  key={t.name}
-                  title={t.name}
-                  description={t.description}
-                  actions={<Button>Select</Button>}
-                  ariaLabel={selectors.components.TransformTab.newTransform(t.name)}
-                  onClick={() => {
-                    this.onTransformationAdd({ value: t.id });
-                  }}
-                />
-              );
-            })}
-          </VerticalGroup>
-        ) : (
-          <Button
-            icon="plus"
-            variant="secondary"
-            onClick={() => {
-              this.setState({ showPicker: true });
-            }}
-          >
-            Add transformation
-          </Button>
-        )}
+        {showPicker && picker}
+        {
+          // If the transformation redesign is enabled
+          // and there are transforms then show actions
+          (transformationsRedesign && hasTransforms && actions) ||
+            // If it's not enabled only show actions when there are
+            // transformations and the (old) picker isn't being shown
+            (!transformationsRedesign && !showPicker && hasTransforms && actions)
+        }
       </>
     );
   }
@@ -334,23 +472,22 @@ class UnThemedTransformationsEditor extends React.PureComponent<TransformationsE
       panel: { alert },
     } = this.props;
     const { transformations } = this.state;
-
     const hasTransforms = transformations.length > 0;
 
-    if (!hasTransforms && alert) {
-      return <PanelNotSupported message="Transformations can't be used on a panel with existing alerts" />;
+    // If there are any alerts then
+    // we can't use transformations
+    if (alert) {
+      const message = hasTransforms
+        ? "Transformations can't be used on a panel with alerts"
+        : "Transformations can't be used on a panel with existing alerts";
+      return <PanelNotSupported message={message} />;
     }
 
     return (
-      <CustomScrollbar autoHeightMin="100%">
-        <Container padding="md">
-          <div aria-label={selectors.components.TransformTab.content}>
-            {hasTransforms && alert ? (
-              <Alert
-                severity={AppNotificationSeverity.Error}
-                title="Transformations can't be used on a panel with alerts"
-              />
-            ) : null}
+      <CustomScrollbar scrollTop={this.state.scrollTop} autoHeightMin="100%">
+        <Container padding="lg">
+          <div data-testid={selectors.components.TransformTab.content}>
+            {!hasTransforms && config.featureToggles.transformationsRedesign && this.renderEmptyMessage()}
             {hasTransforms && this.renderTransformationEditors()}
             {this.renderTransformsPicker()}
           </div>
@@ -359,33 +496,5 @@ class UnThemedTransformationsEditor extends React.PureComponent<TransformationsE
     );
   }
 }
-
-const TransformationCard: React.FC<CardProps> = (props) => {
-  const theme = useTheme();
-  const styles = getTransformationCardStyles(theme);
-  return <Card {...props} className={styles.card} />;
-};
-
-const getTransformationCardStyles = stylesFactory((theme: GrafanaTheme) => {
-  return {
-    card: css`
-      background: ${theme.colors.bg2};
-      width: 100%;
-      border: none;
-      padding: ${theme.spacing.sm};
-
-      // hack because these cards use classes from a very different card for some reason
-      .add-data-source-item-text {
-        font-size: ${theme.typography.size.md};
-      }
-
-      &:hover {
-        background: ${theme.colors.bg3};
-        box-shadow: none;
-        border: none;
-      }
-    `,
-  };
-});
 
 export const TransformationsEditor = withTheme(UnThemedTransformationsEditor);

@@ -1,5 +1,7 @@
-import _ from 'lodash';
+import { size } from 'lodash';
+
 import { QueryHint, QueryFix } from '@grafana/data';
+
 import { PrometheusDatasource } from './datasource';
 
 /**
@@ -11,63 +13,69 @@ export function getQueryHints(query: string, series?: any[], datasource?: Promet
   const hints = [];
 
   // ..._bucket metric needs a histogram_quantile()
-  const histogramMetric = query.trim().match(/^\w+_bucket$/);
+  const histogramMetric = query.trim().match(/^\w+_bucket$|^\w+_bucket{.*}$/);
   if (histogramMetric) {
-    const label = 'Time series has buckets, you probably wanted a histogram.';
+    const label = 'Selected metric has buckets.';
     hints.push({
       type: 'HISTOGRAM_QUANTILE',
       label,
       fix: {
-        label: 'Fix by adding histogram_quantile().',
+        label: 'Consider calculating aggregated quantile by adding histogram_quantile().',
         action: {
           type: 'ADD_HISTOGRAM_QUANTILE',
           query,
         },
-      } as QueryFix,
+      },
     });
   }
 
   // Check for need of rate()
   if (query.indexOf('rate(') === -1 && query.indexOf('increase(') === -1) {
     // Use metric metadata for exact types
-    const nameMatch = query.match(/\b(\w+_(total|sum|count))\b/);
+    const nameMatch = query.match(/\b((?<!:)\w+_(total|sum|count)(?!:))\b/);
     let counterNameMetric = nameMatch ? nameMatch[1] : '';
-    const metricsMetadata = datasource?.languageProvider?.metricsMetadata ?? {};
-    const metricMetadataKeys = Object.keys(metricsMetadata);
+    const metricsMetadata = datasource?.languageProvider?.metricsMetadata;
     let certain = false;
 
-    if (metricMetadataKeys.length > 0) {
+    if (metricsMetadata) {
+      // Tokenize the query into its identifiers (see https://prometheus.io/docs/concepts/data_model/#metric-names-and-labels)
+      const queryTokens = Array.from(query.matchAll(/\$?[a-zA-Z_:][a-zA-Z0-9_:]*/g))
+        .map(([match]) => match)
+        // Exclude variable identifiers
+        .filter((token) => !token.startsWith('$'))
+        // Split composite keys to match the tokens returned by the language provider
+        .flatMap((token) => token.split(':'));
+      // Determine whether any of the query identifier tokens refers to a counter metric
       counterNameMetric =
-        metricMetadataKeys.find((metricName) => {
+        queryTokens.find((metricName) => {
           // Only considering first type information, could be non-deterministic
-          const metadata = metricsMetadata[metricName][0];
-          if (metadata.type.toLowerCase() === 'counter') {
-            const metricRegex = new RegExp(`\\b${metricName}\\b`);
-            if (query.match(metricRegex)) {
-              certain = true;
-              return true;
-            }
+          const metadata = metricsMetadata[metricName];
+          if (metadata && metadata.type.toLowerCase() === 'counter') {
+            certain = true;
+            return true;
+          } else {
+            return false;
           }
-          return false;
         }) ?? '';
     }
 
     if (counterNameMetric) {
-      const simpleMetric = query.trim().match(/^\w+$/);
+      // FixableQuery consists of metric name and optionally label-value pairs. We are not offering fix for complex queries yet.
+      const fixableQuery = query.trim().match(/^\w+$|^\w+{.*}$/);
       const verb = certain ? 'is' : 'looks like';
-      let label = `Metric ${counterNameMetric} ${verb} a counter.`;
+      let label = `Selected metric ${verb} a counter.`;
       let fix: QueryFix | undefined;
 
-      if (simpleMetric) {
+      if (fixableQuery) {
         fix = {
-          label: 'Fix by adding rate().',
+          label: 'Consider calculating rate of counter by adding rate().',
           action: {
             type: 'ADD_RATE',
             query,
           },
         };
       } else {
-        label = `${label} Try applying a rate() function.`;
+        label = `${label} Consider calculating rate of counter by adding rate().`;
       }
 
       hints.push({
@@ -90,19 +98,19 @@ export function getQueryHints(query: string, series?: any[], datasource?: Promet
       }
       return acc;
     }, {});
-    if (_.size(mappingForQuery) > 0) {
+    if (size(mappingForQuery) > 0) {
       const label = 'Query contains recording rules.';
       hints.push({
         type: 'EXPAND_RULES',
         label,
-        fix: ({
+        fix: {
           label: 'Expand rules',
           action: {
             type: 'EXPAND_RULES',
             query,
-            mapping: mappingForQuery,
+            options: mappingForQuery,
           },
-        } as any) as QueryFix,
+        },
       });
     }
   }
@@ -120,9 +128,23 @@ export function getQueryHints(query: string, series?: any[], datasource?: Promet
             query: query,
             preventSubmit: true,
           },
-        } as QueryFix,
+        },
       });
     }
+  }
+
+  return hints;
+}
+
+export function getInitHints(datasource: PrometheusDatasource): QueryHint[] {
+  const hints = [];
+
+  // Hint for big disabled lookups
+  if (datasource.lookupsDisabled) {
+    hints.push({
+      label: `Labels and metrics lookup was disabled in data source settings.`,
+      type: 'INFO',
+    });
   }
 
   return hints;

@@ -1,7 +1,8 @@
 import { Field, DataFrame, FieldType } from '../../types/dataFrame';
-import { MatcherID } from './ids';
-import { getFieldMatcher, fieldMatchers, getFrameMatchers, frameMatchers } from '../matchers';
 import { FieldMatcherInfo, MatcherConfig, FrameMatcherInfo } from '../../types/transformations';
+import { getFieldMatcher, fieldMatchers, getFrameMatchers, frameMatchers } from '../matchers';
+
+import { MatcherID } from './ids';
 
 const anyFieldMatcher: FieldMatcherInfo<MatcherConfig[]> = {
   id: MatcherID.anyMatch,
@@ -204,11 +205,11 @@ const alwaysFieldMatcherInfo: FieldMatcherInfo = {
   name: 'All Fields',
   description: 'Always Match',
 
-  get: (option: any) => {
+  get: (_option) => {
     return alwaysFieldMatcher;
   },
 
-  getOptionsDisplayText: (options: any) => {
+  getOptionsDisplayText: (_options) => {
     return 'Always';
   },
 };
@@ -218,11 +219,11 @@ const alwaysFrameMatcherInfo: FrameMatcherInfo = {
   name: 'All Frames',
   description: 'Always Match',
 
-  get: (option: any) => {
+  get: (_option) => {
     return alwaysFrameMatcher;
   },
 
-  getOptionsDisplayText: (options: any) => {
+  getOptionsDisplayText: (_options) => {
     return 'Always';
   },
 };
@@ -233,11 +234,11 @@ const neverFieldMatcherInfo: FieldMatcherInfo = {
   description: 'Never Match',
   excludeFromPicker: true,
 
-  get: (option: any) => {
+  get: (_option) => {
     return neverFieldMatcher;
   },
 
-  getOptionsDisplayText: (options: any) => {
+  getOptionsDisplayText: (_options) => {
     return 'Never';
   },
 };
@@ -247,11 +248,11 @@ const neverFrameMatcherInfo: FrameMatcherInfo = {
   name: 'No Frames',
   description: 'Never Match',
 
-  get: (option: any) => {
+  get: (_option) => {
     return neverFrameMatcher;
   },
 
-  getOptionsDisplayText: (options: any) => {
+  getOptionsDisplayText: (_options) => {
     return 'Never';
   },
 };

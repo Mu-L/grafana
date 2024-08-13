@@ -1,27 +1,29 @@
-import React, { FC } from 'react';
-import { GrafanaTheme } from '@grafana/data';
-import { css } from 'emotion';
-import { useStyles } from '../../themes';
+import { css } from '@emotion/css';
+import React from 'react';
+
+import { GrafanaTheme2 } from '@grafana/data';
+
+import { useStyles2 } from '../../themes';
 
 export interface Props {
   children: JSX.Element | string;
 }
 
-const EmptySearchResult: FC<Props> = ({ children }) => {
-  const styles = useStyles(getStyles);
+const EmptySearchResult = ({ children }: Props) => {
+  const styles = useStyles2(getStyles);
   return <div className={styles.container}>{children}</div>;
 };
 
-const getStyles = (theme: GrafanaTheme) => {
+const getStyles = (theme: GrafanaTheme2) => {
   return {
-    container: css`
-      border-left: 3px solid ${theme.palette.blue80};
-      background-color: ${theme.colors.bg2};
-      padding: ${theme.spacing.d};
-      min-width: 350px;
-      border-radius: ${theme.border.radius.md};
-      margin-bottom: ${theme.spacing.xl};
-    `,
+    container: css({
+      borderLeft: `3px solid ${theme.colors.info.main}`,
+      backgroundColor: `${theme.colors.background.secondary}`,
+      padding: theme.spacing(2),
+      minWidth: '350px',
+      borderRadius: theme.shape.radius.default,
+      marginBottom: theme.spacing(4),
+    }),
   };
 };
 export { EmptySearchResult };

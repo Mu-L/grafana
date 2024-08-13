@@ -1,142 +1,103 @@
-import React, { FC, useState } from 'react';
-import { MapStateToProps, connect } from 'react-redux';
-import { NavModel, SelectableValue, urlUtil } from '@grafana/data';
-import Page from 'app/core/components/Page/Page';
-import { StoreState } from 'app/types';
-import { GrafanaRouteComponentProps } from '../../core/navigation/types';
-import { getNavModel } from 'app/core/selectors/navModel';
+import React, { useMemo, useState } from 'react';
 import { useAsync } from 'react-use';
-import { getBackendSrv, locationService } from '@grafana/runtime';
-import { PlaylistDTO } from './types';
-import { Button, Card, Checkbox, Field, LinkButton, Modal, RadioButtonGroup, VerticalGroup } from '@grafana/ui';
-import { contextSrv } from 'app/core/core';
-import OrgActionBar from 'app/core/components/OrgActionBar/OrgActionBar';
-import EmptyListCTA from '../../core/components/EmptyListCTA/EmptyListCTA';
 
-interface ConnectedProps {
-  navModel: NavModel;
-}
+import { ConfirmModal, LinkButton } from '@grafana/ui';
+import EmptyListCTA from 'app/core/components/EmptyListCTA/EmptyListCTA';
+import { Page } from 'app/core/components/Page/Page';
+import PageActionBar from 'app/core/components/PageActionBar/PageActionBar';
+import { Trans, t } from 'app/core/internationalization';
+import { contextSrv } from 'app/core/services/context_srv';
 
-interface Props extends ConnectedProps, GrafanaRouteComponentProps {}
+import { EmptyQueryListBanner } from './EmptyQueryListBanner';
+import { PlaylistPageList } from './PlaylistPageList';
+import { StartModal } from './StartModal';
+import { getPlaylistAPI, searchPlaylists } from './api';
+import { Playlist } from './types';
 
-export const PlaylistPage: FC<Props> = ({ navModel }) => {
+export const PlaylistPage = () => {
+  const api = getPlaylistAPI();
+  const [forcePlaylistsFetch, setForcePlaylistsFetch] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
-  const [startPlaylist, setStartPlaylist] = useState<PlaylistDTO | undefined>();
+  const allPlaylists = useAsync(() => api.getAllPlaylist(), [forcePlaylistsFetch]);
+  const playlists = useMemo(() => searchPlaylists(allPlaylists.value ?? [], searchQuery), [searchQuery, allPlaylists]);
 
-  const { value: playlists, loading } = useAsync(async () => {
-    return getBackendSrv().get('/api/playlists', { query: searchQuery }) as Promise<PlaylistDTO[]>;
-  });
+  const [startPlaylist, setStartPlaylist] = useState<Playlist | undefined>();
+  const [playlistToDelete, setPlaylistToDelete] = useState<Playlist | undefined>();
+
   const hasPlaylists = playlists && playlists.length > 0;
+  const onDismissDelete = () => setPlaylistToDelete(undefined);
+  const onDeletePlaylist = () => {
+    if (!playlistToDelete) {
+      return;
+    }
+    api.deletePlaylist(playlistToDelete.uid).finally(() => {
+      setForcePlaylistsFetch(forcePlaylistsFetch + 1);
+      setPlaylistToDelete(undefined);
+    });
+  };
 
-  let content = (
+  const emptyListBanner = (
     <EmptyListCTA
-      title="There are no playlists created yet"
+      title={t('playlist-page.empty.title', 'There are no playlists created yet')}
       buttonIcon="plus"
-      buttonLink="playlists/create"
-      buttonTitle="Create Playlist"
-      proTip="You can use playlists to cycle dashboards on TVs without user control"
+      buttonLink="playlists/new"
+      buttonTitle={t('playlist-page.empty.button', 'Create Playlist')}
+      buttonDisabled={!contextSrv.isEditor}
+      proTip={t('playlist-page.empty.pro-tip', 'You can use playlists to cycle dashboards on TVs without user control')}
       proTipLink="http://docs.grafana.org/reference/playlist/"
-      proTipLinkTitle="Learn more"
+      proTipLinkTitle={t('playlist-page.empty.pro-tip-link-title', 'Learn more')}
       proTipTarget="_blank"
     />
   );
 
-  if (hasPlaylists) {
-    content = (
-      <>
-        {playlists!.map((playlist) => (
-          <Card heading={playlist.name} key={playlist.id.toString()}>
-            <Card.Actions>
-              <Button variant="secondary" icon="play" onClick={() => setStartPlaylist(playlist)}>
-                Start playlist
-              </Button>
-              {contextSrv.isEditor && (
-                <LinkButton
-                  key="edit"
-                  variant="secondary"
-                  href={`/playlists/edit/${playlist.id}`}
-                  icon="cog"
-                  disabled
-                  title="Feature temporarily disabled"
-                >
-                  Edit playlist
-                </LinkButton>
-              )}
-            </Card.Actions>
-          </Card>
-        ))}
-      </>
-    );
-  }
+  const showSearch = allPlaylists.loading || playlists.length > 0 || searchQuery.length > 0;
 
   return (
-    <Page navModel={navModel}>
-      <Page.Contents isLoading={loading}>
-        {hasPlaylists && (
-          <OrgActionBar
-            searchQuery={searchQuery}
-            linkButton={{ title: 'New playlist', href: '/playlists/new' }}
-            setSearchQuery={setSearchQuery}
-          />
+    <Page
+      actions={
+        contextSrv.isEditor ? (
+          <LinkButton href="/playlists/new">
+            <Trans i18nKey="playlist-page.create-button.title">New playlist</Trans>
+          </LinkButton>
+        ) : undefined
+      }
+      navId="dashboards/playlists"
+    >
+      <Page.Contents>
+        {showSearch && <PageActionBar searchQuery={searchQuery} setSearchQuery={setSearchQuery} />}
+
+        {allPlaylists.loading ? (
+          <PlaylistPageList.Skeleton />
+        ) : (
+          <>
+            {!hasPlaylists && searchQuery ? (
+              <EmptyQueryListBanner />
+            ) : (
+              <PlaylistPageList
+                playlists={playlists}
+                setStartPlaylist={setStartPlaylist}
+                setPlaylistToDelete={setPlaylistToDelete}
+              />
+            )}
+            {!showSearch && emptyListBanner}
+            {playlistToDelete && (
+              <ConfirmModal
+                title={playlistToDelete.name}
+                confirmText={t('playlist-page.delete-modal.confirm-text', 'Delete')}
+                body={t('playlist-page.delete-modal.body', 'Are you sure you want to delete {{name}} playlist?', {
+                  name: playlistToDelete.name,
+                })}
+                onConfirm={onDeletePlaylist}
+                isOpen={Boolean(playlistToDelete)}
+                onDismiss={onDismissDelete}
+              />
+            )}
+            {startPlaylist && <StartModal playlist={startPlaylist} onDismiss={() => setStartPlaylist(undefined)} />}
+          </>
         )}
-        {content}
-        {startPlaylist && <StartModal playlist={startPlaylist} onDismiss={() => setStartPlaylist(undefined)} />}
       </Page.Contents>
     </Page>
   );
 };
 
-const mapStateToProps: MapStateToProps<ConnectedProps, {}, StoreState> = (state: StoreState) => ({
-  navModel: getNavModel(state.navIndex, 'playlists'),
-});
-
-export default connect(mapStateToProps)(PlaylistPage);
-
-export interface StartModalProps {
-  playlist: PlaylistDTO;
-  onDismiss: () => void;
-}
-
-export const StartModal: FC<StartModalProps> = ({ playlist, onDismiss }) => {
-  const [mode, setMode] = useState<any>(false);
-  const [autoFit, setAutofit] = useState(false);
-
-  const modes: Array<SelectableValue<any>> = [
-    { label: 'Normal', value: false },
-    { label: 'TV', value: 'tv' },
-    { label: 'Kiosk', value: true },
-  ];
-
-  const onStart = () => {
-    const params: any = {};
-    if (mode) {
-      params.kiosk = mode;
-    }
-    if (autoFit) {
-      params.autofitpanels = true;
-    }
-    locationService.push(urlUtil.renderUrl(`/playlists/play/${playlist.id}`, params));
-  };
-
-  return (
-    <Modal isOpen={true} icon="play" title="Start playlist" onDismiss={onDismiss}>
-      <VerticalGroup>
-        <Field label="Mode">
-          <RadioButtonGroup value={mode} options={modes} onChange={setMode} />
-        </Field>
-        <Checkbox
-          label="Autofit"
-          description="Panel heights will be adjusted to fit screen size"
-          name="autofix"
-          value={autoFit}
-          onChange={(e) => setAutofit(e.currentTarget.checked)}
-        />
-      </VerticalGroup>
-      <div className="gf-form-button-row">
-        <Button variant="primary" onClick={onStart}>
-          Start {playlist.name}
-        </Button>
-      </div>
-    </Modal>
-  );
-};
+export default PlaylistPage;

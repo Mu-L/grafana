@@ -1,65 +1,176 @@
 package api
 
-import (
-	"errors"
-	"fmt"
-	"net/http"
-	"regexp"
+import contextmodel "github.com/grafana/grafana/pkg/services/contexthandler/model"
 
-	"github.com/grafana/grafana/pkg/api/datasource"
-	"github.com/grafana/grafana/pkg/api/pluginproxy"
-	"github.com/grafana/grafana/pkg/infra/metrics"
-	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/plugins/manager"
-)
+// swagger:route GET /datasources/proxy/{id}/{datasource_proxy_route} datasources datasourceProxyGETcalls
+//
+// Data source proxy GET calls.
+//
+// Proxies all calls to the actual data source.
+//
+// Please refer to [updated API](#/datasources/datasourceProxyGETByUIDcalls) instead
+//
+// Deprecated: true
+//
+// Responses:
+// 200:
+// 400: badRequestError
+// 401: unauthorisedError
+// 403: forbiddenError
+// 404: notFoundError
+// 500: internalServerError
 
-// ProxyDataSourceRequest proxies datasource requests
-func (hs *HTTPServer) ProxyDataSourceRequest(c *models.ReqContext) {
-	c.TimeRequest(metrics.MDataSourceProxyReqTimer)
+// swagger:route POST /datasources/proxy/{id}/{datasource_proxy_route} datasources datasourceProxyPOSTcalls
+//
+// Data source proxy POST calls.
+//
+// Proxies all calls to the actual data source. The data source should support POST methods for the specific path and role as defined
+//
+// Please refer to [updated API](#/datasources/datasourceProxyPOSTByUIDcalls) instead
+//
+// Deprecated: true
+//
+// Responses:
+// 201:
+// 202:
+// 400: badRequestError
+// 401: unauthorisedError
+// 403: forbiddenError
+// 404: notFoundError
+// 500: internalServerError
 
-	dsID := c.ParamsInt64(":id")
-	ds, err := hs.DatasourceCache.GetDatasource(dsID, c.SignedInUser, c.SkipCache)
-	if err != nil {
-		if errors.Is(err, models.ErrDataSourceAccessDenied) {
-			c.JsonApiErr(http.StatusForbidden, "Access denied to datasource", err)
-			return
-		}
-		c.JsonApiErr(http.StatusInternalServerError, "Unable to load datasource meta data", err)
-		return
-	}
-
-	err = hs.PluginRequestValidator.Validate(ds.Url, c.Req.Request)
-	if err != nil {
-		c.JsonApiErr(http.StatusForbidden, "Access denied", err)
-		return
-	}
-
-	// find plugin
-	plugin, ok := manager.DataSources[ds.Type]
-	if !ok {
-		c.JsonApiErr(http.StatusInternalServerError, "Unable to find datasource plugin", err)
-		return
-	}
-
-	proxyPath := getProxyPath(c)
-	proxy, err := pluginproxy.NewDataSourceProxy(ds, plugin, c, proxyPath, hs.Cfg)
-	if err != nil {
-		if errors.Is(err, datasource.URLValidationError{}) {
-			c.JsonApiErr(http.StatusBadRequest, fmt.Sprintf("Invalid data source URL: %q", ds.Url), err)
-		} else {
-			c.JsonApiErr(http.StatusInternalServerError, "Failed creating data source proxy", err)
-		}
-		return
-	}
-	proxy.HandleRequest()
+// swagger:route DELETE /datasources/proxy/{id}/{datasource_proxy_route} datasources datasourceProxyDELETEcalls
+//
+// Data source proxy DELETE calls.
+//
+// Proxies all calls to the actual data source.
+//
+// Please refer to [updated API](#/datasources/datasourceProxyDELETEByUIDcalls) instead
+//
+// Deprecated: true
+//
+// Responses:
+// 202:
+// 400: badRequestError
+// 401: unauthorisedError
+// 403: forbiddenError
+// 404: notFoundError
+// 500: internalServerError
+func (hs *HTTPServer) ProxyDataSourceRequest(c *contextmodel.ReqContext) {
+	hs.DataProxy.ProxyDataSourceRequest(c)
 }
 
-var proxyPathRegexp = regexp.MustCompile(`^\/api\/datasources\/proxy\/[\d]+\/?`)
+// swagger:route GET /datasources/proxy/uid/{uid}/{datasource_proxy_route} datasources datasourceProxyGETByUIDcalls
+//
+// Data source proxy GET calls.
+//
+// Proxies all calls to the actual data source.
+//
+// Responses:
+// 200:
+// 400: badRequestError
+// 401: unauthorisedError
+// 403: forbiddenError
+// 404: notFoundError
+// 500: internalServerError
 
-func extractProxyPath(originalRawPath string) string {
-	return proxyPathRegexp.ReplaceAllString(originalRawPath, "")
+// swagger:route POST /datasources/proxy/uid/{uid}/{datasource_proxy_route} datasources datasourceProxyPOSTByUIDcalls
+//
+// Data source proxy POST calls.
+//
+// Proxies all calls to the actual data source. The data source should support POST methods for the specific path and role as defined
+//
+// Responses:
+// 201:
+// 202:
+// 400: badRequestError
+// 401: unauthorisedError
+// 403: forbiddenError
+// 404: notFoundError
+// 500: internalServerError
+
+// swagger:route DELETE /datasources/proxy/uid/{uid}/{datasource_proxy_route} datasources datasourceProxyDELETEByUIDcalls
+//
+// Data source proxy DELETE calls.
+//
+// Proxies all calls to the actual data source.
+//
+// Responses:
+// 202:
+// 400: badRequestError
+// 401: unauthorisedError
+// 403: forbiddenError
+// 404: notFoundError
+// 500: internalServerError
+func (hs *HTTPServer) ProxyDataSourceRequestWithUID(c *contextmodel.ReqContext) {
+	hs.DataProxy.ProxyDatasourceRequestWithUID(c, "")
 }
 
-func getProxyPath(c *models.ReqContext) string {
-	return extractProxyPath(c.Req.URL.EscapedPath())
+// swagger:parameters datasourceProxyDELETEcalls
+type DatasourceProxyDELETEcallsParams struct {
+	// in:path
+	// required:true
+	DatasourceID string `json:"id"`
+}
+
+// swagger:parameters datasourceProxyDELETEByUIDcalls
+type DatasourceProxyDELETEByUIDcallsParams struct {
+	// in:path
+	// required:true
+	DatasourceUID string `json:"uid"`
+}
+
+// swagger:parameters datasourceProxyGETcalls
+type DatasourceProxyGETcallsParams struct {
+	// in:path
+	// required:true
+	DatasourceProxyRoute string `json:"datasource_proxy_route"`
+	// in:path
+	// required:true
+	DatasourceID string `json:"id"`
+}
+
+// swagger:parameters datasourceProxyGETByUIDcalls
+type DatasourceProxyGETByUIDcallsParams struct {
+	// in:path
+	// required:true
+	DatasourceProxyRoute string `json:"datasource_proxy_route"`
+	// in:path
+	// required:true
+	DatasourceUID string `json:"uid"`
+}
+
+// swagger:parameters datasourceProxyDELETEcalls
+// swagger:parameters datasourceProxyDELETEByUIDcalls
+// swagger:parameters callDatasourceResourceWithUID callDatasourceResourceByID
+type DatasourceProxyRouteParam struct {
+	// in:path
+	// required:true
+	DatasourceProxyRoute string `json:"datasource_proxy_route"`
+}
+
+// swagger:parameters datasourceProxyPOSTcalls
+type DatasourceProxyPOSTcallsParams struct {
+	// in:body
+	// required:true
+	DatasourceProxyParam any
+	// in:path
+	// required:true
+	DatasourceProxyRoute string `json:"datasource_proxy_route"`
+	// in:path
+	// required:true
+	DatasourceID string `json:"id"`
+}
+
+// swagger:parameters datasourceProxyPOSTByUIDcalls
+type DatasourceProxyPOSTByUIDcallsParams struct {
+	// in:body
+	// required:true
+	DatasourceProxyParam any
+	// in:path
+	// required:true
+	DatasourceProxyRoute string `json:"datasource_proxy_route"`
+	// in:path
+	// required:true
+	DatasourceUID string `json:"uid"`
 }

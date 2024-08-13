@@ -1,29 +1,30 @@
-import React, { useContext } from 'react';
-import { css, cx } from 'emotion';
+import { css, cx } from '@emotion/css';
+import React from 'react';
 
-import { CompletionItem, ThemeContext } from '../..';
-import { GrafanaTheme, renderMarkdown } from '@grafana/data';
+import { GrafanaTheme2, renderMarkdown } from '@grafana/data';
 
-const getStyles = (theme: GrafanaTheme, height: number, visible: boolean) => {
+import { useTheme2 } from '../../themes/ThemeContext';
+import { CompletionItem } from '../../types';
+
+const getStyles = (theme: GrafanaTheme2, height: number, visible: boolean) => {
   return {
-    typeaheadItem: css`
-      label: type-ahead-item;
-      z-index: 11;
-      padding: ${theme.spacing.sm} ${theme.spacing.sm} ${theme.spacing.sm} ${theme.spacing.md};
-      border-radius: ${theme.border.radius.md};
-      border: ${theme.colors.border2};
-      overflow-y: scroll;
-      overflow-x: hidden;
-      outline: none;
-      background: ${theme.colors.bg2};
-      color: ${theme.colors.text};
-      box-shadow: 0 0 20px ${theme.colors.dropdownShadow};
-      visibility: ${visible === true ? 'visible' : 'hidden'};
-      width: 250px;
-      height: ${height + parseInt(theme.spacing.xxs, 10)}px;
-      position: relative;
-      word-break: break-word;
-    `,
+    typeaheadItem: css({
+      label: 'type-ahead-item',
+      zIndex: 11,
+      padding: theme.spacing(1, 1, 1, 2),
+      border: theme.colors.border.medium,
+      overflowY: 'scroll',
+      overflowX: 'hidden',
+      outline: 'none',
+      background: theme.colors.background.secondary,
+      color: theme.colors.text.secondary,
+      boxShadow: `0 0 20px ${theme.v1.colors.dropdownShadow}`,
+      visibility: visible === true ? 'visible' : 'hidden',
+      width: '250px',
+      minHeight: `${height + parseInt(theme.spacing(0.25), 10)}px`,
+      position: 'relative',
+      wordBreak: 'break-word',
+    }),
   };
 };
 
@@ -32,11 +33,11 @@ interface Props {
   height: number;
 }
 
-export const TypeaheadInfo: React.FC<Props> = ({ item, height }) => {
+export const TypeaheadInfo = ({ item, height }: Props) => {
   const visible = item && !!item.documentation;
   const label = item ? item.label : '';
   const documentation = renderMarkdown(item?.documentation);
-  const theme = useContext(ThemeContext);
+  const theme = useTheme2();
   const styles = getStyles(theme, height, visible);
 
   return (

@@ -1,12 +1,14 @@
 import React, { useState, FC, useEffect } from 'react';
-import EmptyListCTA from 'app/core/components/EmptyListCTA/EmptyListCTA';
-import Page from 'app/core/components/Page/Page';
-import { getBackendSrv } from '@grafana/runtime';
 import { useAsyncFn } from 'react-use';
+
+import { getBackendSrv } from '@grafana/runtime';
+import { HorizontalGroup, Button, LinkButton } from '@grafana/ui';
+import EmptyListCTA from 'app/core/components/EmptyListCTA/EmptyListCTA';
+import { Page } from 'app/core/components/Page/Page';
 import { appEvents } from 'app/core/core';
 import { useNavModel } from 'app/core/hooks/useNavModel';
-import { HorizontalGroup, Button, LinkButton } from '@grafana/ui';
 import { AlertNotification } from 'app/types/alerting';
+
 import { ShowConfirmModalEvent } from '../../types/events';
 
 const NotificationsListPage: FC = () => {
@@ -23,7 +25,7 @@ const NotificationsListPage: FC = () => {
     fetchNotifications().then((res) => {
       setNotifications(res);
     });
-  }, []);
+  }, [fetchNotifications]);
 
   const deleteNotification = (id: number) => {
     appEvents.publish(
@@ -50,12 +52,12 @@ const NotificationsListPage: FC = () => {
   return (
     <Page navModel={navModel}>
       <Page.Contents>
-        {state.error && <p>{state.error}</p>}
+        {state.error && <p>{state.error.message}</p>}
         {!!notifications.length && (
           <>
             <div className="page-action-bar">
               <div className="page-action-bar__spacer" />
-              <LinkButton icon="channel-add" href="alerting/notification/new">
+              <LinkButton icon="channel-add" href="alerting-legacy/notification/new">
                 New channel
               </LinkButton>
             </div>
@@ -73,10 +75,10 @@ const NotificationsListPage: FC = () => {
                 {notifications.map((notification) => (
                   <tr key={notification.id}>
                     <td className="link-td">
-                      <a href={`alerting/notification/${notification.id}/edit`}>{notification.name}</a>
+                      <a href={`alerting-legacy/notification/${notification.id}/edit`}>{notification.name}</a>
                     </td>
                     <td className="link-td">
-                      <a href={`alerting/notification/${notification.id}/edit`}>{notification.type}</a>
+                      <a href={`alerting-legacy/notification/${notification.id}/edit`}>{notification.type}</a>
                     </td>
                     <td className="text-right">
                       <HorizontalGroup justify="flex-end">
@@ -106,7 +108,7 @@ const NotificationsListPage: FC = () => {
           <EmptyListCTA
             title="There are no notification channels defined yet"
             buttonIcon="channel-add"
-            buttonLink="alerting/notification/new"
+            buttonLink="alerting-legacy/notification/new"
             buttonTitle="Add channel"
             proTip="You can include images in your alert notifications."
             proTipLink="http://docs.grafana.org/alerting/notifications/"

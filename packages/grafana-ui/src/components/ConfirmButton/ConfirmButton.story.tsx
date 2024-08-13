@@ -1,25 +1,28 @@
-import React from 'react';
-import { Story } from '@storybook/react';
-import { ConfirmButton } from '@grafana/ui';
-import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
-import { NOOP_CONTROL } from '../../utils/storybook/noopControl';
 import { action } from '@storybook/addon-actions';
+import { Meta, Story } from '@storybook/react';
+import React from 'react';
+
+import { ConfirmButton } from '@grafana/ui';
+
 import { Button } from '../Button';
-import { DeleteButton } from './DeleteButton';
+
 import { Props } from './ConfirmButton';
 import mdx from './ConfirmButton.mdx';
+import { DeleteButton } from './DeleteButton';
 
-export default {
+const meta: Meta = {
   title: 'Buttons/ConfirmButton',
   component: ConfirmButton,
-  decorators: [withCenteredStory],
+  // SB7 has broken subcomponent types due to dropping support for the feature
+  // https://github.com/storybookjs/storybook/issues/20782
+  // @ts-ignore
   subcomponents: { DeleteButton },
   parameters: {
     docs: {
       page: mdx,
     },
-    knobs: {
-      disable: true,
+    controls: {
+      exclude: ['className', 'onClick', 'onCancel', 'onConfirm'],
     },
   },
   args: {
@@ -31,9 +34,13 @@ export default {
     closeOnConfirm: true,
   },
   argTypes: {
-    confirmVariant: { control: { type: 'select' } },
-    size: { control: { type: 'select' } },
-    className: NOOP_CONTROL,
+    confirmVariant: {
+      control: {
+        type: 'select',
+      },
+      options: ['primary', 'secondary', 'destructive', 'link'],
+    },
+    size: { control: { type: 'select' }, options: ['xs', 'sm', 'md', 'lg'] },
   },
 };
 
@@ -88,3 +95,5 @@ export const Delete: Story<StoryProps> = (args) => {
     />
   );
 };
+
+export default meta;

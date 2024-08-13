@@ -1,18 +1,23 @@
+import { css } from '@emotion/css';
+import { uniqueId } from 'lodash';
 import React from 'react';
-import { css } from 'emotion';
-import { GrafanaTheme } from '@grafana/data';
-import { useStyles } from '../../themes';
+
+import { GrafanaTheme2 } from '@grafana/data';
+
+import { useStyles2 } from '../../themes';
+
 import { MenuItemProps } from './MenuItem';
 
 /** @internal */
-export interface MenuItemsGroup {
+export interface MenuItemsGroup<T = unknown> {
   /** Label for the menu items group */
   label?: string;
   /** Aria label for accessibility support */
   ariaLabel?: string;
   /** Items of the group */
-  items: MenuItemProps[];
+  items: Array<MenuItemProps<T>>;
 }
+
 /** @internal */
 export interface MenuGroupProps extends Partial<MenuItemsGroup> {
   /** special children prop to pass children elements */
@@ -20,15 +25,16 @@ export interface MenuGroupProps extends Partial<MenuItemsGroup> {
 }
 
 /** @internal */
-export const MenuGroup: React.FC<MenuGroupProps> = ({ label, children, ariaLabel }) => {
-  const styles = useStyles(getStyles);
+export const MenuGroup = ({ label, ariaLabel, children }: MenuGroupProps) => {
+  const styles = useStyles2(getStyles);
+  const labelID = `group-label-${uniqueId()}`;
 
   return (
-    <div>
+    <div role="group" aria-labelledby={!ariaLabel && label ? labelID : undefined} aria-label={ariaLabel}>
       {label && (
-        <div className={styles.groupLabel} aria-label={ariaLabel}>
+        <label id={labelID} className={styles.groupLabel} aria-hidden>
           {label}
-        </div>
+        </label>
       )}
       {children}
     </div>
@@ -37,14 +43,12 @@ export const MenuGroup: React.FC<MenuGroupProps> = ({ label, children, ariaLabel
 MenuGroup.displayName = 'MenuGroup';
 
 /** @internal */
-const getStyles = (theme: GrafanaTheme) => {
-  const groupLabelColor = theme.colors.textWeak;
+const getStyles = (theme: GrafanaTheme2) => {
   return {
-    groupLabel: css`
-      color: ${groupLabelColor};
-      font-size: ${theme.typography.size.sm};
-      line-height: ${theme.typography.lineHeight.md};
-      padding: ${theme.spacing.xs} ${theme.spacing.sm};
-    `,
+    groupLabel: css({
+      color: theme.colors.text.secondary,
+      fontSize: theme.typography.size.sm,
+      padding: theme.spacing(0.5, 1),
+    }),
   };
 };

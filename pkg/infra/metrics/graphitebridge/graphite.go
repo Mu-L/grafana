@@ -27,7 +27,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/grafana/grafana/pkg/cmd/grafana-cli/logger"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
@@ -119,7 +118,7 @@ type Bridge struct {
 // log.Logger from the standard library implements this interface, and it is
 // easy to implement by custom loggers, if they don't do so already anyway.
 type Logger interface {
-	Println(v ...interface{})
+	Println(v ...any)
 }
 
 // NewBridge returns a pointer to a new Bridge struct.
@@ -203,8 +202,8 @@ func (b *Bridge) Push() error {
 		return err
 	}
 	defer func() {
-		if err := conn.Close(); err != nil {
-			logger.Warn("Failed to close connection", "err", err)
+		if err := conn.Close(); err != nil && b.logger != nil {
+			b.logger.Println("Failed to close connection", "err", err)
 		}
 	}()
 

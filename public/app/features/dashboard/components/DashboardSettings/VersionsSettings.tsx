@@ -1,21 +1,28 @@
 import React, { PureComponent } from 'react';
+
+import { config } from '@grafana/runtime';
 import { Spinner, HorizontalGroup } from '@grafana/ui';
-import { DashboardModel } from '../../state/DashboardModel';
-import { historySrv, RevisionsModel, CalculateDiffOptions } from '../VersionHistory/HistorySrv';
-import { VersionHistoryTable } from '../VersionHistory/VersionHistoryTable';
-import { VersionHistoryHeader } from '../VersionHistory/VersionHistoryHeader';
-import { VersionsHistoryButtons } from '../VersionHistory/VersionHistoryButtons';
-import { VersionHistoryComparison } from '../VersionHistory/VersionHistoryComparison';
-interface Props {
-  dashboard: DashboardModel;
-}
+import { Page } from 'app/core/components/Page/Page';
+
+import {
+  historySrv,
+  RevisionsModel,
+  VersionHistoryTable,
+  VersionHistoryHeader,
+  VersionsHistoryButtons,
+  VersionHistoryComparison,
+} from '../VersionHistory';
+
+import { SettingsPageProps } from './types';
+
+interface Props extends SettingsPageProps {}
 
 type State = {
   isLoading: boolean;
   isAppending: boolean;
   versions: DecoratedRevisionModel[];
   viewMode: 'list' | 'compare';
-  delta: { basic: string; json: string };
+  diffData: { lhs: unknown; rhs: unknown };
   newInfo?: DecoratedRevisionModel;
   baseInfo?: DecoratedRevisionModel;
   isNewLatest: boolean;
@@ -24,7 +31,6 @@ type State = {
 export type DecoratedRevisionModel = RevisionsModel & {
   createdDateString: string;
   ageString: string;
-  checked: boolean;
 };
 
 export const VERSIONS_FETCH_LIMIT = 10;
@@ -38,15 +44,15 @@ export class VersionsSettings extends PureComponent<Props, State> {
     this.limit = VERSIONS_FETCH_LIMIT;
     this.start = 0;
     this.state = {
-      delta: {
-        basic: '',
-        json: '',
-      },
       isAppending: true,
       isLoading: true,
       versions: [],
       viewMode: 'list',
       isNewLatest: false,
+      diffData: {
+        lhs: {},
+        rhs: {},
+      },
     };
   }
 
@@ -69,51 +75,29 @@ export class VersionsSettings extends PureComponent<Props, State> {
       .finally(() => this.setState({ isAppending: false }));
   };
 
-  getDiff = (diff: string) => {
+  getDiff = async () => {
     const selectedVersions = this.state.versions.filter((version) => version.checked);
     const [newInfo, baseInfo] = selectedVersions;
     const isNewLatest = newInfo.version === this.props.dashboard.version;
 
     this.setState({
-      baseInfo,
       isLoading: true,
+    });
+
+    const lhs = await historySrv.getDashboardVersion(this.props.dashboard.uid, baseInfo.version);
+    const rhs = await historySrv.getDashboardVersion(this.props.dashboard.uid, newInfo.version);
+
+    this.setState({
+      baseInfo,
+      isLoading: false,
       isNewLatest,
       newInfo,
       viewMode: 'compare',
+      diffData: {
+        lhs: lhs.data,
+        rhs: rhs.data,
+      },
     });
-
-    const options: CalculateDiffOptions = {
-      new: {
-        dashboardId: this.props.dashboard.id,
-        version: newInfo.version,
-      },
-      base: {
-        dashboardId: this.props.dashboard.id,
-        version: baseInfo.version,
-      },
-      diffType: diff,
-    };
-
-    return historySrv
-      .calculateDiff(options)
-      .then((response: any) => {
-        this.setState({
-          // @ts-ignore
-          delta: {
-            [diff]: response,
-          },
-        });
-      })
-      .catch(() => {
-        this.setState({
-          viewMode: 'list',
-        });
-      })
-      .finally(() => {
-        this.setState({
-          isLoading: false,
-        });
-      });
   };
 
   decorateVersions = (versions: RevisionsModel[]) =>
@@ -139,7 +123,10 @@ export class VersionsSettings extends PureComponent<Props, State> {
   reset = () => {
     this.setState({
       baseInfo: undefined,
-      delta: { basic: '', json: '' },
+      diffData: {
+        lhs: {},
+        rhs: {},
+      },
       isNewLatest: false,
       newInfo: undefined,
       versions: this.state.versions.map((version) => ({ ...version, checked: false })),
@@ -148,16 +135,16 @@ export class VersionsSettings extends PureComponent<Props, State> {
   };
 
   render() {
-    const { versions, viewMode, baseInfo, newInfo, isNewLatest, isLoading, delta } = this.state;
-    const canCompare = versions.filter((version) => version.checked).length !== 2;
+    const { versions, viewMode, baseInfo, newInfo, isNewLatest, isLoading, diffData } = this.state;
+    const canCompare = versions.filter((version) => version.checked).length === 2;
     const showButtons = versions.length > 1;
     const hasMore = versions.length >= this.limit;
+    const pageNav = config.featureToggles.dockedMegaMenu ? this.props.sectionNav.node.parentItem : undefined;
 
     if (viewMode === 'compare') {
       return (
-        <div>
+        <Page navModel={this.props.sectionNav} pageNav={pageNav}>
           <VersionHistoryHeader
-            isComparing
             onClick={this.reset}
             baseVersion={baseInfo?.version}
             newVersion={newInfo?.version}
@@ -167,25 +154,22 @@ export class VersionsSettings extends PureComponent<Props, State> {
             <VersionsHistorySpinner msg="Fetching changes&hellip;" />
           ) : (
             <VersionHistoryComparison
-              dashboard={this.props.dashboard}
-              newInfo={newInfo}
-              baseInfo={baseInfo}
+              newInfo={newInfo!}
+              baseInfo={baseInfo!}
               isNewLatest={isNewLatest}
-              onFetchFail={this.reset}
-              delta={delta}
+              diffData={diffData}
             />
           )}
-        </div>
+        </Page>
       );
     }
 
     return (
-      <div>
-        <VersionHistoryHeader />
+      <Page navModel={this.props.sectionNav} pageNav={pageNav}>
         {isLoading ? (
           <VersionsHistorySpinner msg="Fetching history list&hellip;" />
         ) : (
-          <VersionHistoryTable versions={versions} onCheck={this.onCheck} />
+          <VersionHistoryTable versions={versions} onCheck={this.onCheck} canCompare={canCompare} />
         )}
         {this.state.isAppending && <VersionsHistorySpinner msg="Fetching more entries&hellip;" />}
         {showButtons && (
@@ -197,7 +181,7 @@ export class VersionsSettings extends PureComponent<Props, State> {
             isLastPage={!!this.isLastPage()}
           />
         )}
-      </div>
+      </Page>
     );
   }
 }

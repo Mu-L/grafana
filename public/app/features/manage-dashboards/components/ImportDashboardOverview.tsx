@@ -1,29 +1,38 @@
 import React, { PureComponent } from 'react';
+import { connect, ConnectedProps } from 'react-redux';
+
 import { dateTimeFormat } from '@grafana/data';
-import { Legend, Form } from '@grafana/ui';
-import { connect, MapDispatchToProps, MapStateToProps } from 'react-redux';
-import { ImportDashboardForm } from './ImportDashboardForm';
-import { clearLoadedDashboard, importDashboard } from '../state/actions';
-import { DashboardInputs, DashboardSource, ImportDashboardDTO } from '../state/reducers';
+import { locationService, reportInteraction } from '@grafana/runtime';
+import { Form, Legend } from '@grafana/ui';
 import { StoreState } from 'app/types';
-import { locationService } from '@grafana/runtime';
 
-interface OwnProps {}
+import { clearLoadedDashboard, importDashboard } from '../state/actions';
+import { DashboardSource, ImportDashboardDTO } from '../state/reducers';
 
-interface ConnectedProps {
-  dashboard: ImportDashboardDTO;
-  inputs: DashboardInputs;
-  source: DashboardSource;
-  meta?: any;
-  folder: { id: number; title?: string };
-}
+import { ImportDashboardForm } from './ImportDashboardForm';
 
-interface DispatchProps {
-  clearLoadedDashboard: typeof clearLoadedDashboard;
-  importDashboard: typeof importDashboard;
-}
+const IMPORT_FINISHED_EVENT_NAME = 'dashboard_import_imported';
 
-type Props = OwnProps & ConnectedProps & DispatchProps;
+const mapStateToProps = (state: StoreState) => {
+  const searchObj = locationService.getSearchObject();
+
+  return {
+    dashboard: state.importDashboard.dashboard,
+    meta: state.importDashboard.meta,
+    source: state.importDashboard.source,
+    inputs: state.importDashboard.inputs,
+    folder: searchObj.folderUid ? { uid: String(searchObj.folderUid) } : { uid: '' },
+  };
+};
+
+const mapDispatchToProps = {
+  clearLoadedDashboard,
+  importDashboard,
+};
+
+const connector = connect(mapStateToProps, mapDispatchToProps);
+
+type Props = ConnectedProps<typeof connector>;
 
 interface State {
   uidReset: boolean;
@@ -35,6 +44,8 @@ class ImportDashboardOverviewUnConnected extends PureComponent<Props, State> {
   };
 
   onSubmit = (form: ImportDashboardDTO) => {
+    reportInteraction(IMPORT_FINISHED_EVENT_NAME);
+
     this.props.importDashboard(form);
   };
 
@@ -56,7 +67,7 @@ class ImportDashboardOverviewUnConnected extends PureComponent<Props, State> {
           <div style={{ marginBottom: '24px' }}>
             <div>
               <Legend>
-                Importing Dashboard from{' '}
+                Importing dashboard from{' '}
                 <a
                   href={`https://grafana.com/dashboards/${dashboard.gnetId}`}
                   className="external-link"
@@ -83,7 +94,7 @@ class ImportDashboardOverviewUnConnected extends PureComponent<Props, State> {
         )}
         <Form
           onSubmit={this.onSubmit}
-          defaultValues={{ ...dashboard, constants: [], dataSources: [], folder: folder }}
+          defaultValues={{ ...dashboard, constants: [], dataSources: [], elements: [], folder: folder }}
           validateOnMount
           validateFieldsOnMount={['title', 'uid']}
           validateOn="onChange"
@@ -100,7 +111,7 @@ class ImportDashboardOverviewUnConnected extends PureComponent<Props, State> {
               onUidReset={this.onUidReset}
               onSubmit={this.onSubmit}
               watch={watch}
-              initialFolderId={folder.id}
+              initialFolderUid={folder.uid}
             />
           )}
         </Form>
@@ -109,22 +120,5 @@ class ImportDashboardOverviewUnConnected extends PureComponent<Props, State> {
   }
 }
 
-const mapStateToProps: MapStateToProps<ConnectedProps, OwnProps, StoreState> = (state: StoreState) => {
-  const searchObj = locationService.getSearchObject();
-
-  return {
-    dashboard: state.importDashboard.dashboard,
-    meta: state.importDashboard.meta,
-    source: state.importDashboard.source,
-    inputs: state.importDashboard.inputs,
-    folder: searchObj.folderId ? { id: Number(searchObj.folderId) } : { id: 0 },
-  };
-};
-
-const mapDispatchToProps: MapDispatchToProps<DispatchProps, OwnProps> = {
-  clearLoadedDashboard,
-  importDashboard,
-};
-
-export const ImportDashboardOverview = connect(mapStateToProps, mapDispatchToProps)(ImportDashboardOverviewUnConnected);
+export const ImportDashboardOverview = connector(ImportDashboardOverviewUnConnected);
 ImportDashboardOverview.displayName = 'ImportDashboardOverview';

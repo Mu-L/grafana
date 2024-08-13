@@ -1,37 +1,64 @@
 import React, { useState } from 'react';
-import { DashboardModel } from '../../state/DashboardModel';
-import { LinkSettingsEdit, LinkSettingsHeader, LinkSettingsList } from '../LinksSettings';
-interface Props {
-  dashboard: DashboardModel;
-}
+
+import { NavModelItem } from '@grafana/data';
+import { config, locationService } from '@grafana/runtime';
+import { Page } from 'app/core/components/Page/Page';
+
+import { LinkSettingsEdit, LinkSettingsList } from '../LinksSettings';
+import { newLink } from '../LinksSettings/LinkSettingsEdit';
+
+import { SettingsPageProps } from './types';
 
 export type LinkSettingsMode = 'list' | 'new' | 'edit';
 
-export const LinksSettings: React.FC<Props> = ({ dashboard }) => {
-  const [mode, setMode] = useState<LinkSettingsMode>('list');
-  const [editLinkIdx, setEditLinkIdx] = useState<number | null>(null);
-  const hasLinks = dashboard.links.length > 0;
+export function LinksSettings({ dashboard, sectionNav, editIndex }: SettingsPageProps) {
+  const [isNew, setIsNew] = useState<boolean>(false);
 
-  const backToList = () => {
-    setMode('list');
+  const onGoBack = () => {
+    setIsNew(false);
+    locationService.partial({ editIndex: undefined });
   };
-  const setupNew = () => {
-    setEditLinkIdx(null);
-    setMode('new');
+
+  const onNew = () => {
+    dashboard.links = [...dashboard.links, { ...newLink }];
+    setIsNew(true);
+    locationService.partial({ editIndex: dashboard.links.length - 1 });
   };
-  const editLink = (idx: number) => {
-    setEditLinkIdx(idx);
-    setMode('edit');
+
+  const onEdit = (idx: number) => {
+    setIsNew(false);
+    locationService.partial({ editIndex: idx });
   };
+
+  const isEditing = editIndex !== undefined;
+
+  let pageNav: NavModelItem | undefined;
+
+  if (config.featureToggles.dockedMegaMenu) {
+    pageNav = sectionNav.node.parentItem;
+  }
+
+  if (isEditing) {
+    const title = isNew ? 'New link' : 'Edit link';
+    const description = isNew ? 'Create a new link on your dashboard' : 'Edit a specific link of your dashboard';
+    pageNav = {
+      text: title,
+      subTitle: description,
+    };
+
+    if (config.featureToggles.dockedMegaMenu) {
+      const parentUrl = sectionNav.node.url;
+      pageNav.parentItem = sectionNav.node.parentItem && {
+        ...sectionNav.node.parentItem,
+        url: parentUrl,
+      };
+    }
+  }
 
   return (
-    <>
-      <LinkSettingsHeader onNavClick={backToList} onBtnClick={setupNew} mode={mode} hasLinks={hasLinks} />
-      {mode === 'list' ? (
-        <LinkSettingsList dashboard={dashboard} setupNew={setupNew} editLink={editLink} />
-      ) : (
-        <LinkSettingsEdit dashboard={dashboard} mode={mode} editLinkIdx={editLinkIdx} backToList={backToList} />
-      )}
-    </>
+    <Page navModel={sectionNav} pageNav={pageNav}>
+      {!isEditing && <LinkSettingsList dashboard={dashboard} onNew={onNew} onEdit={onEdit} />}
+      {isEditing && <LinkSettingsEdit dashboard={dashboard} editLinkIdx={editIndex} onGoBack={onGoBack} />}
+    </Page>
   );
-};
+}

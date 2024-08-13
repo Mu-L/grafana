@@ -1,18 +1,18 @@
+import { Meta, StoryFn } from '@storybook/react';
 import React from 'react';
-import { Story } from '@storybook/react';
-import { FieldValidationMessage, FieldValidationMessageProps } from './FieldValidationMessage';
-import mdx from './FieldValidationMessage.mdx';
-import { NOOP_CONTROL } from '../../utils/storybook/noopControl';
 
-export default {
+import { FieldValidationMessage } from './FieldValidationMessage';
+import mdx from './FieldValidationMessage.mdx';
+
+const meta: Meta<typeof FieldValidationMessage> = {
   title: 'Forms/FieldValidationMessage',
   component: FieldValidationMessage,
   parameters: {
     docs: {
       page: mdx,
     },
-    knobs: {
-      disable: true,
+    controls: {
+      exclude: ['className'],
     },
   },
   args: {
@@ -21,10 +21,11 @@ export default {
   },
   argTypes: {
     children: { name: 'message' },
-    className: NOOP_CONTROL,
   },
 };
 
-export const Basic: Story<FieldValidationMessageProps> = (args) => {
+export const Basic: StoryFn<typeof FieldValidationMessage> = (args) => {
   return <FieldValidationMessage horizontal={args.horizontal}>{args.children}</FieldValidationMessage>;
 };
+
+export default meta;

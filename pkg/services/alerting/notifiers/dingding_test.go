@@ -4,56 +4,58 @@ import (
 	"context"
 	"testing"
 
-	"github.com/grafana/grafana/pkg/services/validations"
+	"github.com/stretchr/testify/require"
 
 	"github.com/grafana/grafana/pkg/components/simplejson"
-	"github.com/grafana/grafana/pkg/models"
 	"github.com/grafana/grafana/pkg/services/alerting"
-	. "github.com/smartystreets/goconvey/convey"
+	"github.com/grafana/grafana/pkg/services/alerting/models"
+	"github.com/grafana/grafana/pkg/services/annotations/annotationstest"
+	encryptionservice "github.com/grafana/grafana/pkg/services/encryption/service"
+	"github.com/grafana/grafana/pkg/services/validations"
 )
 
 func TestDingDingNotifier(t *testing.T) {
-	Convey("Dingding notifier tests", t, func() {
-		Convey("empty settings should return error", func() {
-			json := `{ }`
+	encryptionService := encryptionservice.SetupTestService(t)
 
-			settingsJSON, _ := simplejson.NewJson([]byte(json))
-			model := &models.AlertNotification{
-				Name:     "dingding_testing",
-				Type:     "dingding",
-				Settings: settingsJSON,
-			}
+	t.Run("empty settings should return error", func(t *testing.T) {
+		json := `{ }`
 
-			_, err := newDingDingNotifier(model)
-			So(err, ShouldNotBeNil)
-		})
-		Convey("settings should trigger incident", func() {
-			json := `{ "url": "https://www.google.com" }`
+		settingsJSON, _ := simplejson.NewJson([]byte(json))
+		model := &models.AlertNotification{
+			Name:     "dingding_testing",
+			Type:     "dingding",
+			Settings: settingsJSON,
+		}
 
-			settingsJSON, _ := simplejson.NewJson([]byte(json))
-			model := &models.AlertNotification{
-				Name:     "dingding_testing",
-				Type:     "dingding",
-				Settings: settingsJSON,
-			}
+		_, err := newDingDingNotifier(model, encryptionService.GetDecryptedValue, nil)
+		require.Error(t, err)
+	})
+	t.Run("settings should trigger incident", func(t *testing.T) {
+		json := `{ "url": "https://www.google.com" }`
 
-			not, err := newDingDingNotifier(model)
-			notifier := not.(*DingDingNotifier)
+		settingsJSON, _ := simplejson.NewJson([]byte(json))
+		model := &models.AlertNotification{
+			Name:     "dingding_testing",
+			Type:     "dingding",
+			Settings: settingsJSON,
+		}
 
-			So(err, ShouldBeNil)
-			So(notifier.Name, ShouldEqual, "dingding_testing")
-			So(notifier.Type, ShouldEqual, "dingding")
-			So(notifier.URL, ShouldEqual, "https://www.google.com")
+		not, err := newDingDingNotifier(model, encryptionService.GetDecryptedValue, nil)
+		notifier := not.(*DingDingNotifier)
 
-			Convey("genBody should not panic", func() {
-				evalContext := alerting.NewEvalContext(context.Background(),
-					&alerting.Rule{
-						State:   models.AlertStateAlerting,
-						Message: `{host="localhost"}`,
-					}, &validations.OSSPluginRequestValidator{})
-				_, err = notifier.genBody(evalContext, "")
-				So(err, ShouldBeNil)
-			})
+		require.Nil(t, err)
+		require.Equal(t, "dingding_testing", notifier.Name)
+		require.Equal(t, "dingding", notifier.Type)
+		require.Equal(t, "https://www.google.com", notifier.URL)
+
+		t.Run("genBody should not panic", func(t *testing.T) {
+			evalContext := alerting.NewEvalContext(context.Background(),
+				&alerting.Rule{
+					State:   models.AlertStateAlerting,
+					Message: `{host="localhost"}`,
+				}, &validations.OSSPluginRequestValidator{}, nil, nil, nil, annotationstest.NewFakeAnnotationsRepo())
+			_, err = notifier.genBody(evalContext, "")
+			require.Nil(t, err)
 		})
 	})
 }

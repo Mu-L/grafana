@@ -1,16 +1,14 @@
-// Libraries
 import React, { Component } from 'react';
-import { hot } from 'react-hot-loader';
-import { connect } from 'react-redux';
-// Components
-import { DashboardPanel } from '../dashgrid/DashboardPanel';
-// Redux
-import { initDashboard } from '../state/initDashboard';
-// Types
-import { StoreState } from 'app/types';
-import { PanelModel, DashboardModel } from 'app/features/dashboard/state';
+import { connect, ConnectedProps } from 'react-redux';
+import AutoSizer from 'react-virtualized-auto-sizer';
+
+import { GrafanaContext, GrafanaContextType } from 'app/core/context/GrafanaContext';
 import { GrafanaRouteComponentProps } from 'app/core/navigation/types';
-import { getLegacyAngularInjector } from '@grafana/runtime';
+import { DashboardModel, PanelModel } from 'app/features/dashboard/state';
+import { StoreState } from 'app/types';
+
+import { DashboardPanel } from '../dashgrid/DashboardPanel';
+import { initDashboard } from '../state/initDashboard';
 
 export interface DashboardPageRouteParams {
   uid?: string;
@@ -18,10 +16,18 @@ export interface DashboardPageRouteParams {
   slug?: string;
 }
 
-export interface Props extends GrafanaRouteComponentProps<DashboardPageRouteParams, { panelId: string }> {
-  initDashboard: typeof initDashboard;
-  dashboard: DashboardModel | null;
-}
+const mapStateToProps = (state: StoreState) => ({
+  dashboard: state.dashboard.getModel(),
+});
+
+const mapDispatchToProps = {
+  initDashboard,
+};
+
+const connector = connect(mapStateToProps, mapDispatchToProps);
+
+export type Props = GrafanaRouteComponentProps<DashboardPageRouteParams, { panelId: string; timezone?: string }> &
+  ConnectedProps<typeof connector>;
 
 export interface State {
   panel: PanelModel | null;
@@ -29,6 +35,9 @@ export interface State {
 }
 
 export class SoloPanelPage extends Component<Props, State> {
+  declare context: GrafanaContextType;
+  static contextType = GrafanaContext;
+
   state: State = {
     panel: null,
     notFound: false,
@@ -38,12 +47,12 @@ export class SoloPanelPage extends Component<Props, State> {
     const { match, route } = this.props;
 
     this.props.initDashboard({
-      $injector: getLegacyAngularInjector(),
       urlSlug: match.params.slug,
       urlUid: match.params.uid,
       urlType: match.params.type,
       routeName: route.routeName,
       fixUrl: false,
+      keybindingSrv: this.context.keybindings,
     });
   }
 
@@ -60,48 +69,75 @@ export class SoloPanelPage extends Component<Props, State> {
 
     // we just got a new dashboard
     if (!prevProps.dashboard || prevProps.dashboard.uid !== dashboard.uid) {
-      const panelId = this.getPanelId();
-
-      // need to expand parent row if this panel is inside a row
-      dashboard.expandParentRowFor(panelId);
-
-      const panel = dashboard.getPanelById(panelId);
+      const panel = dashboard.getPanelByUrlId(this.props.queryParams.panelId);
 
       if (!panel) {
         this.setState({ notFound: true });
         return;
       }
 
+      if (panel) {
+        dashboard.exitViewPanel(panel);
+      }
+
       this.setState({ panel });
+      dashboard.initViewPanel(panel);
     }
   }
 
   render() {
-    const { dashboard } = this.props;
-    const { notFound, panel } = this.state;
-
-    if (notFound) {
-      return <div className="alert alert-error">Panel with id {this.getPanelId()} not found</div>;
-    }
-
-    if (!panel || !dashboard) {
-      return <div>Loading & initializing dashboard</div>;
-    }
-
     return (
-      <div className="panel-solo">
-        <DashboardPanel dashboard={dashboard} panel={panel} isEditing={false} isViewing={false} isInView={true} />
-      </div>
+      <SoloPanel
+        dashboard={this.props.dashboard}
+        notFound={this.state.notFound}
+        panel={this.state.panel}
+        panelId={this.getPanelId()}
+        timezone={this.props.queryParams.timezone}
+      />
     );
   }
 }
 
-const mapStateToProps = (state: StoreState) => ({
-  dashboard: state.dashboard.getModel(),
-});
+export interface SoloPanelProps extends State {
+  dashboard: DashboardModel | null;
+  panelId: number;
+  timezone?: string;
+}
 
-const mapDispatchToProps = {
-  initDashboard,
+export const SoloPanel = ({ dashboard, notFound, panel, panelId, timezone }: SoloPanelProps) => {
+  if (notFound) {
+    return <div className="alert alert-error">Panel with id {panelId} not found</div>;
+  }
+
+  if (!panel || !dashboard) {
+    return <div>Loading & initializing dashboard</div>;
+  }
+
+  return (
+    <div className="panel-solo">
+      <AutoSizer>
+        {({ width, height }) => {
+          if (width === 0) {
+            return null;
+          }
+          return (
+            <DashboardPanel
+              stateKey={panel.key}
+              width={width}
+              height={height}
+              dashboard={dashboard}
+              panel={panel}
+              isEditing={false}
+              isViewing={true}
+              lazy={false}
+              timezone={timezone}
+              hideMenu={true}
+            />
+          );
+        }}
+      </AutoSizer>
+    </div>
+  );
 };
 
-export default hot(module)(connect(mapStateToProps, mapDispatchToProps)(SoloPanelPage));
+export default connector(SoloPanelPage);

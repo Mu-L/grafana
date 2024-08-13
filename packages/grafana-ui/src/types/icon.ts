@@ -1,270 +1,48 @@
+import { availableIconsIndex, Field, FieldType, IconName } from '@grafana/data';
+
 import { ComponentSize } from './size';
-export type IconType = 'mono' | 'default';
+
+// Exported from here for backwards compatibility
+export type { IconName } from '@grafana/data';
+export { toIconName } from '@grafana/data';
+
+export type IconType = 'mono' | 'default' | 'solid';
 export type IconSize = ComponentSize | 'xl' | 'xxl' | 'xxxl';
+export const isIconSize = (value: string): value is IconSize => {
+  return ['xs', 'sm', 'md', 'lg', 'xl', 'xxl', 'xxxl'].includes(value);
+};
 
-export type IconName =
-  | 'angle-double-down'
-  | 'angle-double-right'
-  | 'angle-down'
-  | 'angle-left'
-  | 'angle-right'
-  | 'angle-up'
-  | 'apps'
-  | 'arrow-down'
-  | 'arrow-from-right'
-  | 'arrow-left'
-  | 'arrow-random'
-  | 'arrow-right'
-  | 'arrow-up'
-  | 'arrow'
-  | 'arrows-h'
-  | 'bars'
-  | 'bell-slash'
-  | 'bell'
-  | 'bolt'
-  | 'book-open'
-  | 'book'
-  | 'bug'
-  | 'calculator-alt'
-  | 'calendar-alt'
-  | 'camera'
-  | 'channel-add'
-  | 'chart-line'
-  | 'check-circle'
-  | 'check'
-  | 'circle'
-  | 'clipboard-alt'
-  | 'clock-nine'
-  | 'cloud-download'
-  | 'cloud-upload'
-  | 'cloud'
-  | 'code-branch'
-  | 'cog'
-  | 'columns'
-  | 'comment-alt'
-  | 'comments-alt'
-  | 'compass'
-  | 'copy'
-  | 'cube'
-  | 'database'
-  | 'document-info'
-  | 'download-alt'
-  | 'draggabledots'
-  | 'edit'
-  | 'ellipsis-v'
-  | 'envelope'
-  | 'exchange-alt'
-  | 'exclamation-triangle'
-  | 'external-link-alt'
-  | 'eye-slash'
-  | 'eye'
-  | 'fa fa-spinner'
-  | 'favorite'
-  | 'file-alt'
-  | 'file-blank'
-  | 'file-copy-alt'
-  | 'filter'
-  | 'folder-open'
-  | 'folder-plus'
-  | 'folder-upload'
-  | 'folder'
-  | 'forward'
-  | 'gf-interpolation-linear'
-  | 'gf-interpolation-smooth'
-  | 'gf-interpolation-step-after'
-  | 'gf-interpolation-step-before'
-  | 'gf-logs'
-  | 'grafana'
-  | 'graph-bar'
-  | 'heart-break'
-  | 'heart'
-  | 'history'
-  | 'home-alt'
-  | 'import'
-  | 'info-circle'
-  | 'key-skeleton-alt'
-  | 'keyboard'
-  | 'line-alt'
-  | 'link'
-  | 'list-ul'
-  | 'lock'
-  | 'minus-circle'
-  | 'minus'
-  | 'mobile-android'
-  | 'monitor'
-  | 'palette'
-  | 'panel-add'
-  | 'pause'
-  | 'pen'
-  | 'percentage'
-  | 'play'
-  | 'plug'
-  | 'plus-circle'
-  | 'plus-square'
-  | 'plus'
-  | 'power'
-  | 'question-circle'
-  | 'repeat'
-  | 'reusable-panel'
-  | 'rocket'
-  | 'save'
-  | 'search-minus'
-  | 'search-plus'
-  | 'search'
-  | 'share-alt'
-  | 'shield'
-  | 'sign-in-alt'
-  | 'signal'
-  | 'signin'
-  | 'signout'
-  | 'slack'
-  | 'sliders-v-alt'
-  | 'sort-amount-down'
-  | 'square-shape'
-  | 'star'
-  | 'step-backward'
-  | 'sync'
-  | 'table'
-  | 'tag-alt'
-  | 'times'
-  | 'trash-alt'
-  | 'unlock'
-  | 'upload'
-  | 'user'
-  | 'users-alt'
-  | 'wrap-text'
-  | 'x';
+// function remains for backwards compatibility
+export const getAvailableIcons = () => Object.keys(availableIconsIndex);
 
-export const getAvailableIcons = (): IconName[] => [
-  'angle-double-down',
-  'angle-double-right',
-  'angle-down',
-  'angle-left',
-  'angle-right',
-  'angle-up',
-  'apps',
-  'arrow-down',
-  'arrow-from-right',
-  'arrow-left',
-  'arrow-random',
-  'arrow-right',
-  'arrow-up',
-  'arrow',
-  'arrows-h',
-  'bars',
-  'bell-slash',
-  'bell',
-  'bolt',
-  'book-open',
-  'book',
-  'bug',
-  'calculator-alt',
-  'calendar-alt',
-  'camera',
-  'channel-add',
-  'chart-line',
-  'check-circle',
-  'check',
-  'circle',
-  'clipboard-alt',
-  'clock-nine',
-  'cloud-download',
-  'cloud-upload',
-  'cloud',
-  'code-branch',
-  'cog',
-  'columns',
-  'comment-alt',
-  'comments-alt',
-  'compass',
-  'copy',
-  'cube',
-  'database',
-  'document-info',
-  'download-alt',
-  'draggabledots',
-  'edit',
-  'ellipsis-v',
-  'envelope',
-  'exchange-alt',
-  'exclamation-triangle',
-  'external-link-alt',
-  'eye-slash',
-  'eye',
-  'fa fa-spinner',
-  'favorite',
-  'file-alt',
-  'file-blank',
-  'file-copy-alt',
-  'filter',
-  'folder-open',
-  'folder-plus',
-  'folder-upload',
-  'folder',
-  'forward',
-  'gf-interpolation-linear',
-  'gf-interpolation-smooth',
-  'gf-interpolation-step-after',
-  'gf-interpolation-step-before',
-  'gf-logs',
-  'grafana',
-  'graph-bar',
-  'heart-break',
-  'heart',
-  'history',
-  'home-alt',
-  'import',
-  'info-circle',
-  'key-skeleton-alt',
-  'keyboard',
-  'line-alt',
-  'link',
-  'list-ul',
-  'lock',
-  'minus-circle',
-  'minus',
-  'mobile-android',
-  'monitor',
-  'palette',
-  'panel-add',
-  'pause',
-  'pen',
-  'percentage',
-  'play',
-  'plug',
-  'plus-circle',
-  'plus-square',
-  'plus',
-  'power',
-  'question-circle',
-  'repeat',
-  'reusable-panel',
-  'rocket',
-  'save',
-  'search-minus',
-  'search-plus',
-  'search',
-  'share-alt',
-  'shield',
-  'sign-in-alt',
-  'signal',
-  'signin',
-  'signout',
-  'slack',
-  'sliders-v-alt',
-  'sort-amount-down',
-  'square-shape',
-  'star',
-  'step-backward',
-  'sync',
-  'table',
-  'tag-alt',
-  'times',
-  'trash-alt',
-  'unlock',
-  'upload',
-  'user',
-  'users-alt',
-  'wrap-text',
-  'x',
-];
+/**
+ * Get the icon for a given field
+ */
+export function getFieldTypeIcon(field?: Field): IconName {
+  return getFieldTypeIconName(field?.type);
+}
+
+/** Get an icon for a given field type  */
+export function getFieldTypeIconName(type?: FieldType): IconName {
+  if (type) {
+    switch (type) {
+      case FieldType.time:
+        return 'clock-nine';
+      case FieldType.string:
+        return 'font';
+      case FieldType.number:
+        return 'calculator-alt';
+      case FieldType.boolean:
+        return 'toggle-on';
+      case FieldType.trace:
+        return 'info-circle';
+      case FieldType.enum:
+        return 'list-ol';
+      case FieldType.geo:
+        return 'map-marker';
+      case FieldType.other:
+        return 'brackets-curly';
+    }
+  }
+  return 'question-circle';
+}

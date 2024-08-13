@@ -14,6 +14,7 @@
 
     &:hover {
       color: $footer-link-hover;
+      text-decoration: underline;
     }
 
     i {
@@ -46,16 +47,23 @@
 .login-page {
   .footer {
     display: block;
-    bottom: $spacer;
-    position: absolute;
     padding: $space-md 0 $space-md 0;
+    color: $text-color;
+
+    a {
+      color: $text-color;
+
+      &:hover {
+        color: $text-color-strong;
+      }
+    }
   }
 }
 
-@include media-breakpoint-up(sm) {
+@include media-breakpoint-down(md) {
   .login-page {
     .footer {
-      padding: 70px 0 $space-md 0;
+      display: none;
     }
   }
 }

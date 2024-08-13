@@ -9,6 +9,11 @@ import {
   parseUrlFromOptions,
 } from './fetch';
 
+jest.mock('@grafana/data', () => ({
+  ...jest.requireActual('@grafana/data'),
+  deprecationWarning: () => {},
+}));
+
 describe('parseUrlFromOptions', () => {
   it.each`
     params                                                      | url                | expected
@@ -87,15 +92,16 @@ describe('isContentTypeApplicationJson', () => {
 
 describe('parseBody', () => {
   it.each`
-    options                  | isAppJson | expected
-    ${undefined}             | ${false}  | ${undefined}
-    ${undefined}             | ${true}   | ${undefined}
-    ${{ data: undefined }}   | ${false}  | ${undefined}
-    ${{ data: undefined }}   | ${true}   | ${undefined}
-    ${{ data: 'some data' }} | ${false}  | ${'some data'}
-    ${{ data: 'some data' }} | ${true}   | ${'some data'}
-    ${{ data: { id: '0' } }} | ${false}  | ${new URLSearchParams({ id: '0' })}
-    ${{ data: { id: '0' } }} | ${true}   | ${'{"id":"0"}'}
+    options                                         | isAppJson | expected
+    ${undefined}                                    | ${false}  | ${undefined}
+    ${undefined}                                    | ${true}   | ${undefined}
+    ${{ data: undefined }}                          | ${false}  | ${undefined}
+    ${{ data: undefined }}                          | ${true}   | ${undefined}
+    ${{ data: 'some data' }}                        | ${false}  | ${'some data'}
+    ${{ data: 'some data' }}                        | ${true}   | ${'some data'}
+    ${{ data: { id: '0' } }}                        | ${false}  | ${new URLSearchParams({ id: '0' })}
+    ${{ data: { id: '0' } }}                        | ${true}   | ${'{"id":"0"}'}
+    ${{ data: new Blob([new Uint8Array([1, 1])]) }} | ${false}  | ${new Blob([new Uint8Array([1, 1])])}
   `(
     "when called with options: '$options' and isAppJson: '$isAppJson' then the result should be '$expected'",
     ({ options, isAppJson, expected }) => {
@@ -130,7 +136,12 @@ describe('parseCredentials', () => {
 });
 
 describe('parseResponseBody', () => {
-  const rsp = ({} as unknown) as Response;
+  let rsp: Response;
+
+  beforeEach(() => {
+    rsp = new Response();
+  });
+
   it('parses json', async () => {
     const value = { hello: 'world' };
     const body = await parseResponseBody(
@@ -141,6 +152,24 @@ describe('parseResponseBody', () => {
       'json'
     );
     expect(body).toEqual(value);
+  });
+
+  it('returns an empty object {} when the response is empty but is declared as JSON type', async () => {
+    rsp.headers.set('Content-Length', '0');
+    jest.spyOn(console, 'warn').mockImplementation();
+
+    const json = jest.fn();
+    const body = await parseResponseBody(
+      {
+        ...rsp,
+        json,
+      },
+      'json'
+    );
+
+    expect(body).toEqual({});
+    expect(json).not.toHaveBeenCalled();
+    expect(console.warn).toHaveBeenCalledTimes(1);
   });
 
   it('parses text', async () => {

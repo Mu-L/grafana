@@ -1,6 +1,7 @@
 import { Field } from '../../../types/dataFrame';
 import { ValueMatcherInfo } from '../../../types/transformations';
 import { ValueMatcherID } from '../ids';
+
 import { ValueMatcherOptions } from './types';
 
 const isNullValueMatcher: ValueMatcherInfo<ValueMatcherOptions> = {
@@ -9,8 +10,8 @@ const isNullValueMatcher: ValueMatcherInfo<ValueMatcherOptions> = {
   description: 'Match where value for given field is null.',
   get: () => {
     return (valueIndex: number, field: Field) => {
-      const value = field.values.get(valueIndex);
-      return value === null;
+      const value = field.values[valueIndex];
+      return value == null;
     };
   },
   getOptionsDisplayText: () => {
@@ -26,8 +27,8 @@ const isNotNullValueMatcher: ValueMatcherInfo<ValueMatcherOptions> = {
   description: 'Match where value for given field is not null.',
   get: () => {
     return (valueIndex: number, field: Field) => {
-      const value = field.values.get(valueIndex);
-      return value !== null;
+      const value = field.values[valueIndex];
+      return value != null;
     };
   },
   getOptionsDisplayText: () => {

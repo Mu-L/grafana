@@ -1,31 +1,61 @@
-import React, { PureComponent } from 'react';
-import { DashboardModel } from '../../state/DashboardModel';
-import { AngularComponent, getAngularLoader } from '@grafana/runtime';
+import React from 'react';
 
-interface Props {
-  dashboard: DashboardModel;
+import { AnnotationQuery, getDataSourceRef, NavModelItem } from '@grafana/data';
+import { config, getDataSourceSrv, locationService } from '@grafana/runtime';
+import { Page } from 'app/core/components/Page/Page';
+
+import { DashboardModel } from '../../state';
+import { AnnotationSettingsEdit, AnnotationSettingsList, newAnnotationName } from '../AnnotationSettings';
+
+import { SettingsPageProps } from './types';
+
+export function AnnotationsSettings({ dashboard, editIndex, sectionNav }: SettingsPageProps) {
+  const onNew = () => {
+    const newAnnotation: AnnotationQuery = {
+      name: newAnnotationName,
+      enable: true,
+      datasource: getDataSourceRef(getDataSourceSrv().getInstanceSettings(null)!),
+      iconColor: 'red',
+    };
+
+    dashboard.annotations.list = [...dashboard.annotations.list, { ...newAnnotation }];
+    locationService.partial({ editIndex: dashboard.annotations.list.length - 1 });
+  };
+
+  const onEdit = (idx: number) => {
+    locationService.partial({ editIndex: idx });
+  };
+
+  const isEditing = editIndex != null && editIndex < dashboard.annotations.list.length;
+
+  return (
+    <Page navModel={sectionNav} pageNav={getSubPageNav(dashboard, editIndex, sectionNav.node)}>
+      {!isEditing && <AnnotationSettingsList dashboard={dashboard} onNew={onNew} onEdit={onEdit} />}
+      {isEditing && <AnnotationSettingsEdit dashboard={dashboard} editIdx={editIndex!} />}
+    </Page>
+  );
 }
 
-export class AnnotationsSettings extends PureComponent<Props> {
-  element?: HTMLElement | null;
-  angularCmp?: AngularComponent;
-
-  componentDidMount() {
-    const loader = getAngularLoader();
-
-    const template = '<div ng-include="\'public/app/features/annotations/partials/editor.html\'" />';
-    const scopeProps = { dashboard: this.props.dashboard };
-    this.angularCmp = loader.load(this.element, scopeProps, template);
-    this.angularCmp.digest();
+function getSubPageNav(
+  dashboard: DashboardModel,
+  editIndex: number | undefined,
+  node: NavModelItem
+): NavModelItem | undefined {
+  const parentItem = config.featureToggles.dockedMegaMenu ? node.parentItem : undefined;
+  if (editIndex == null) {
+    return parentItem;
   }
 
-  componentWillUnmount() {
-    if (this.angularCmp) {
-      this.angularCmp.destroy();
-    }
+  const editItem = dashboard.annotations.list[editIndex];
+  if (editItem) {
+    return {
+      text: editItem.name,
+      parentItem: parentItem && {
+        ...parentItem,
+        url: node.url,
+      },
+    };
   }
 
-  render() {
-    return <div ref={(ref) => (this.element = ref)} />;
-  }
+  return undefined;
 }

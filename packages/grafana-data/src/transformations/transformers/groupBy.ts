@@ -1,13 +1,12 @@
 import { map } from 'rxjs/operators';
 
-import { DataTransformerID } from './ids';
-import { DataFrame, Field, FieldType } from '../../types/dataFrame';
-import { DataTransformerInfo } from '../../types/transformations';
-import { getFieldDisplayName } from '../../field/fieldState';
-import { ArrayVector } from '../../vector/ArrayVector';
 import { guessFieldTypeForField } from '../../dataframe/processDataFrame';
+import { getFieldDisplayName } from '../../field/fieldState';
+import { DataFrame, Field, FieldType, TransformationApplicabilityLevels } from '../../types';
+import { DataTransformerInfo } from '../../types/transformations';
 import { reduceField, ReducerID } from '../fieldReducer';
-import { MutableField } from '../../dataframe/MutableDataFrame';
+
+import { DataTransformerID } from './ids';
 
 export enum GroupByOperationID {
   aggregate = 'aggregate',
@@ -26,13 +25,40 @@ export interface GroupByTransformerOptions {
 export const groupByTransformer: DataTransformerInfo<GroupByTransformerOptions> = {
   id: DataTransformerID.groupBy,
   name: 'Group by',
-  description: 'Group the data by a field values then process calculations for each group',
+  description: 'Group the data by a field values then process calculations for each group.',
   defaultOptions: {
     fields: {},
   },
+  isApplicable: (data: DataFrame[]) => {
+    let maxFields = 0;
 
+    // Group by needs at least two fields
+    // a field to group on and a field to aggregate
+    // We make sure that at least one frame has at
+    // least two fields
+    for (const frame of data) {
+      if (frame.fields.length > maxFields) {
+        maxFields = frame.fields.length;
+      }
+    }
+
+    return maxFields >= 2
+      ? TransformationApplicabilityLevels.Applicable
+      : TransformationApplicabilityLevels.NotApplicable;
+  },
+  isApplicableDescription: (data: DataFrame[]) => {
+    let maxFields = 0;
+
+    for (const frame of data) {
+      if (frame.fields.length > maxFields) {
+        maxFields = frame.fields.length;
+      }
+    }
+
+    return `The Group by transformation requires a series with at least two fields to work. The maximum number of fields found on a series is ${maxFields}`;
+  },
   /**
-   * Return a modified copy of the series.  If the transform is not or should not
+   * Return a modified copy of the series. If the transform is not or should not
    * be applied, just return the input series
    */
   operator: (options) => (source) =>
@@ -63,13 +89,13 @@ export const groupByTransformer: DataTransformerInfo<GroupByTransformerOptions> 
 
           // Group the values by fields and groups so we can get all values for a
           // group for a given field.
-          const valuesByGroupKey: Record<string, Record<string, MutableField>> = {};
+          const valuesByGroupKey = new Map<string, Record<string, Field>>();
           for (let rowIndex = 0; rowIndex < frame.length; rowIndex++) {
-            const groupKey = String(groupByFields.map((field) => field.values.get(rowIndex)));
-            const valuesByField = valuesByGroupKey[groupKey] ?? {};
+            const groupKey = String(groupByFields.map((field) => field.values[rowIndex]));
+            const valuesByField = valuesByGroupKey.get(groupKey) ?? {};
 
-            if (!valuesByGroupKey[groupKey]) {
-              valuesByGroupKey[groupKey] = valuesByField;
+            if (!valuesByGroupKey.has(groupKey)) {
+              valuesByGroupKey.set(groupKey, valuesByField);
             }
 
             for (let field of frame.fields) {
@@ -80,25 +106,23 @@ export const groupByTransformer: DataTransformerInfo<GroupByTransformerOptions> 
                   name: fieldName,
                   type: field.type,
                   config: { ...field.config },
-                  values: new ArrayVector(),
+                  values: [],
                 };
               }
 
-              valuesByField[fieldName].values.add(field.values.get(rowIndex));
+              valuesByField[fieldName].values.push(field.values[rowIndex]);
             }
           }
 
           const fields: Field[] = [];
-          const groupKeys = Object.keys(valuesByGroupKey);
 
           for (const field of groupByFields) {
-            const values = new ArrayVector();
+            const values: unknown[] = [];
             const fieldName = getFieldDisplayName(field);
 
-            for (let key of groupKeys) {
-              const valuesByField = valuesByGroupKey[key];
-              values.add(valuesByField[fieldName].values.get(0));
-            }
+            valuesByGroupKey.forEach((value) => {
+              values.push(value[fieldName].values[0]);
+            });
 
             fields.push({
               name: field.name,
@@ -118,10 +142,10 @@ export const groupByTransformer: DataTransformerInfo<GroupByTransformerOptions> 
 
             const fieldName = getFieldDisplayName(field);
             const aggregations = options.fields[fieldName].aggregations;
-            const valuesByAggregation: Record<string, any[]> = {};
+            const valuesByAggregation: Record<string, unknown[]> = {};
 
-            for (const groupKey of groupKeys) {
-              const fieldWithValuesForGroup = valuesByGroupKey[groupKey][fieldName];
+            valuesByGroupKey.forEach((value) => {
+              const fieldWithValuesForGroup = value[fieldName];
               const results = reduceField({
                 field: fieldWithValuesForGroup,
                 reducers: aggregations,
@@ -133,12 +157,12 @@ export const groupByTransformer: DataTransformerInfo<GroupByTransformerOptions> 
                 }
                 valuesByAggregation[aggregation].push(results[aggregation]);
               }
-            }
+            });
 
             for (const aggregation of aggregations) {
               const aggregationField: Field = {
                 name: `${fieldName} (${aggregation})`,
-                values: new ArrayVector(valuesByAggregation[aggregation]),
+                values: valuesByAggregation[aggregation] ?? [],
                 type: FieldType.other,
                 config: {},
               };
@@ -150,7 +174,7 @@ export const groupByTransformer: DataTransformerInfo<GroupByTransformerOptions> 
 
           processed.push({
             fields,
-            length: groupKeys.length,
+            length: valuesByGroupKey.size,
           });
         }
 

@@ -1,4 +1,5 @@
-import { FieldType } from '../types/dataFrame';
+import { DataFrame, FieldType } from '../types/dataFrame';
+
 import { compareDataFrameStructures, compareArrayValues } from './frameComparisons';
 import { toDataFrame } from './processDataFrame';
 
@@ -20,6 +21,7 @@ describe('test comparisons', () => {
         config: {
           decimals: 4,
         },
+        labels: { server: 'A' },
       },
     ],
   });
@@ -30,16 +32,33 @@ describe('test comparisons', () => {
     expect(compareDataFrameStructures(frameA, frameA)).toBeTruthy();
     expect(compareDataFrameStructures(frameA, { ...frameA })).toBeTruthy();
     expect(compareDataFrameStructures(frameA, frameB)).toBeFalsy();
-    expect(compareDataFrameStructures(frameA, null as any)).toBeFalsy();
-    expect(compareDataFrameStructures(undefined as any, frameA)).toBeFalsy();
+    expect(compareDataFrameStructures(frameA, null as unknown as DataFrame)).toBeFalsy();
+    expect(compareDataFrameStructures(undefined as unknown as DataFrame, frameA)).toBeFalsy();
 
     expect(compareArrayValues([frameA], [frameA], compareDataFrameStructures)).toBeTruthy();
-    expect(compareArrayValues([frameA], null as any, compareDataFrameStructures)).toBeFalsy();
-    expect(compareArrayValues(null as any, [frameA], compareDataFrameStructures)).toBeFalsy();
+    expect(compareArrayValues([frameA], null as unknown as DataFrame[], compareDataFrameStructures)).toBeFalsy();
+    expect(compareArrayValues(null as unknown as DataFrame[], [frameA], compareDataFrameStructures)).toBeFalsy();
   });
 
-  it('name change and field copy is not a structure change', () => {
-    expect(compareDataFrameStructures(frameB, { ...frameB, name: 'AA' })).toBeTruthy();
+  it('name change should be a structure change', () => {
+    expect(compareDataFrameStructures(frameB, { ...frameB, name: 'AA' })).toBeFalsy();
+  });
+
+  it('label change should be a structure change', () => {
+    const changedFrameB = {
+      ...frameB,
+      fields: [
+        frameB.fields[0],
+        {
+          ...frameB.fields[1],
+          labels: { server: 'B' },
+        },
+      ],
+    };
+    expect(compareDataFrameStructures(frameB, changedFrameB)).toBeFalsy();
+  });
+
+  it('Field copy should not be a structure change', () => {
     expect(compareDataFrameStructures(frameB, { ...frameB, fields: [field0, field1] })).toBeTruthy();
   });
 
@@ -91,39 +110,6 @@ describe('test comparisons', () => {
         ],
       })
     ).toBeFalsy();
-  });
-
-  it('should skip provided properties', () => {
-    expect(
-      compareDataFrameStructures(
-        {
-          ...frameB,
-          fields: [
-            field0,
-            {
-              ...field1,
-              config: {
-                ...field1.config,
-              },
-            },
-          ],
-        },
-        {
-          ...frameB,
-          fields: [
-            field0,
-            {
-              ...field1,
-              config: {
-                ...field1.config,
-                unit: 'rpm',
-              },
-            },
-          ],
-        },
-        ['unit']
-      )
-    ).toBeTruthy();
   });
 
   describe('custom config comparison', () => {
@@ -197,7 +183,7 @@ describe('test comparisons', () => {
       expect(compareDataFrameStructures(a, b)).toBeFalsy();
     });
 
-    it('does not compare deeply', () => {
+    it('does deep comparison', () => {
       const a = {
         ...frameB,
         fields: [
@@ -232,7 +218,7 @@ describe('test comparisons', () => {
         ],
       };
 
-      expect(compareDataFrameStructures(a, b)).toBeFalsy();
+      expect(compareDataFrameStructures(a, b)).toBeTruthy();
     });
   });
 });

@@ -1,84 +1,154 @@
+import { css, CSSObject, cx } from '@emotion/css';
 import React, { AnchorHTMLAttributes, ButtonHTMLAttributes } from 'react';
-import { css, cx } from 'emotion';
-import tinycolor from 'tinycolor2';
-import { useTheme } from '../../themes';
+
+import { GrafanaTheme2, ThemeRichColor } from '@grafana/data';
+
+import { useTheme2 } from '../../themes';
+import { getFocusStyles, getMouseFocusStyles } from '../../themes/mixins';
+import { ComponentSize } from '../../types';
 import { IconName } from '../../types/icon';
 import { getPropertiesForButtonSize } from '../Forms/commonStyles';
-import { GrafanaTheme } from '@grafana/data';
-import { ComponentSize } from '../../types/size';
-import { focusCss } from '../../themes/mixins';
 import { Icon } from '../Icon/Icon';
+import { PopoverContent, Tooltip, TooltipPlacement } from '../Tooltip';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'destructive' | 'link';
+export type ButtonVariant = 'primary' | 'secondary' | 'destructive' | 'success';
+export const allButtonVariants: ButtonVariant[] = ['primary', 'secondary', 'destructive'];
+export type ButtonFill = 'solid' | 'outline' | 'text';
+export const allButtonFills: ButtonFill[] = ['solid', 'outline', 'text'];
 
 type CommonProps = {
   size?: ComponentSize;
   variant?: ButtonVariant;
+  fill?: ButtonFill;
   icon?: IconName;
   className?: string;
   children?: React.ReactNode;
   fullWidth?: boolean;
+  type?: string;
+  /** Tooltip content to display on hover */
+  tooltip?: PopoverContent;
+  /** Position of the tooltip */
+  tooltipPlacement?: TooltipPlacement;
 };
 
 export type ButtonProps = CommonProps & ButtonHTMLAttributes<HTMLButtonElement>;
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant = 'primary', size = 'md', icon, fullWidth, children, className, ...otherProps }, ref) => {
-    const theme = useTheme();
+  (
+    {
+      variant = 'primary',
+      size = 'md',
+      fill = 'solid',
+      icon,
+      fullWidth,
+      children,
+      className,
+      type = 'button',
+      tooltip,
+      tooltipPlacement,
+      ...otherProps
+    },
+    ref
+  ) => {
+    const theme = useTheme2();
     const styles = getButtonStyles({
       theme,
       size,
       variant,
-      icon,
+      fill,
       fullWidth,
-      children,
+      iconOnly: !children,
     });
 
-    return (
-      <button className={cx(styles.button, className)} {...otherProps} ref={ref}>
+    // In order to standardise Button please always consider using IconButton when you need a button with an icon only
+    // When using tooltip, ref is forwarded to Tooltip component instead for https://github.com/grafana/grafana/issues/65632
+    const button = (
+      <button className={cx(styles.button, className)} type={type} {...otherProps} ref={tooltip ? undefined : ref}>
         {icon && <Icon name={icon} size={size} className={styles.icon} />}
         {children && <span className={styles.content}>{children}</span>}
       </button>
     );
+
+    if (tooltip) {
+      return (
+        <Tooltip ref={ref} content={tooltip} placement={tooltipPlacement}>
+          {button}
+        </Tooltip>
+      );
+    }
+
+    return button;
   }
 );
 
 Button.displayName = 'Button';
 
-type ButtonLinkProps = CommonProps & ButtonHTMLAttributes<HTMLButtonElement> & AnchorHTMLAttributes<HTMLAnchorElement>;
+export type ButtonLinkProps = CommonProps &
+  ButtonHTMLAttributes<HTMLButtonElement> &
+  AnchorHTMLAttributes<HTMLAnchorElement>;
 
 export const LinkButton = React.forwardRef<HTMLAnchorElement, ButtonLinkProps>(
-  ({ variant = 'primary', size = 'md', icon, fullWidth, children, className, disabled, ...otherProps }, ref) => {
-    const theme = useTheme();
+  (
+    {
+      variant = 'primary',
+      size = 'md',
+      fill = 'solid',
+      icon,
+      fullWidth,
+      children,
+      className,
+      onBlur,
+      onFocus,
+      disabled,
+      tooltip,
+      tooltipPlacement,
+      ...otherProps
+    },
+    ref
+  ) => {
+    const theme = useTheme2();
     const styles = getButtonStyles({
       theme,
       fullWidth,
       size,
       variant,
-      icon,
-      children,
+      fill,
+      iconOnly: !children,
     });
 
-    const linkButtonStyles =
-      disabled &&
-      cx(
-        disabledStyles,
-        css`
-          pointer-events: none;
-        `
-      );
+    const linkButtonStyles = cx(
+      styles.button,
+      {
+        [css(styles.disabled, {
+          pointerEvents: 'none',
+        })]: disabled,
+      },
+      className
+    );
 
-    return (
+    // When using tooltip, ref is forwarded to Tooltip component instead for https://github.com/grafana/grafana/issues/65632
+    const button = (
       <a
-        className={cx(styles.button, linkButtonStyles, className)}
+        className={linkButtonStyles}
         {...otherProps}
-        ref={ref}
         tabIndex={disabled ? -1 : 0}
+        aria-disabled={disabled}
+        ref={tooltip ? undefined : ref}
       >
         {icon && <Icon name={icon} size={size} className={styles.icon} />}
         {children && <span className={styles.content}>{children}</span>}
       </a>
     );
+
+    if (tooltip) {
+      return (
+        <Tooltip ref={ref} content={tooltip} placement={tooltipPlacement}>
+          {button}
+        </Tooltip>
+      );
+    }
+
+    return button;
   }
 );
 
@@ -87,135 +157,210 @@ LinkButton.displayName = 'LinkButton';
 export interface StyleProps {
   size: ComponentSize;
   variant: ButtonVariant;
-  children?: React.ReactNode;
-  icon?: IconName;
-  theme: GrafanaTheme;
+  fill?: ButtonFill;
+  iconOnly?: boolean;
+  theme: GrafanaTheme2;
   fullWidth?: boolean;
   narrow?: boolean;
 }
 
-const disabledStyles = css`
-  cursor: not-allowed;
-  opacity: 0.65;
-  box-shadow: none;
-`;
-
 export const getButtonStyles = (props: StyleProps) => {
-  const { theme, variant, size, children, fullWidth } = props;
-  const { padding, fontSize, height } = getPropertiesForButtonSize(size, theme);
-  const { borderColor, variantStyles } = getPropertiesForVariant(theme, variant);
-  const iconOnly = !children;
+  const { theme, variant, fill = 'solid', size, iconOnly, fullWidth } = props;
+  const { height, padding, fontSize } = getPropertiesForButtonSize(size, theme);
+  const variantStyles = getPropertiesForVariant(theme, variant, fill);
+  const disabledStyles = getPropertiesForDisabled(theme, variant, fill);
+  const focusStyle = getFocusStyles(theme);
+  const paddingMinusBorder = theme.spacing.gridSize * padding - 1;
 
   return {
-    button: css`
-      label: button;
-      display: inline-flex;
-      align-items: center;
-      font-weight: ${theme.typography.weight.semibold};
-      font-family: ${theme.typography.fontFamily.sansSerif};
-      font-size: ${fontSize};
-      padding: 0 ${padding}px;
-      height: ${height}px;
+    button: css({
+      label: 'button',
+      display: 'inline-flex',
+      alignItems: 'center',
+      fontSize: fontSize,
+      fontWeight: theme.typography.fontWeightMedium,
+      fontFamily: theme.typography.fontFamily,
+      padding: `0 ${paddingMinusBorder}px`,
+      height: theme.spacing(height),
       // Deduct border from line-height for perfect vertical centering on windows and linux
-      line-height: ${height - 2}px;
-      vertical-align: middle;
-      cursor: pointer;
-      border: 1px solid ${borderColor};
-      border-radius: ${theme.border.radius.sm};
-      ${fullWidth &&
-      `
-        flex-grow: 1;
-        justify-content: center;
-      `}
-      ${variantStyles}      
-
-      &[disabled],
-        &:disabled {
-        ${disabledStyles};
-      }
-    `,
-    img: css`
-      width: 16px;
-      height: 16px;
-      margin-right: ${theme.spacing.sm};
-      margin-left: -${theme.spacing.xs};
-    `,
-    icon: css`
-      margin-left: -${padding / 2}px;
-      margin-right: ${(iconOnly ? -padding : padding) / 2}px;
-    `,
-    content: css`
-      display: flex;
-      flex-direction: row;
-      align-items: center;
-      white-space: nowrap;
-      height: 100%;
-    `,
+      lineHeight: `${theme.spacing.gridSize * height - 2}px`,
+      verticalAlign: 'middle',
+      cursor: 'pointer',
+      borderRadius: theme.shape.radius.default,
+      '&:focus': focusStyle,
+      '&:focus-visible': focusStyle,
+      '&:focus:not(:focus-visible)': getMouseFocusStyles(theme),
+      ...(fullWidth && {
+        flexGrow: 1,
+        justifyContent: 'center',
+      }),
+      ...variantStyles,
+      ':disabled': disabledStyles,
+      '&[disabled]': disabledStyles,
+    }),
+    disabled: css(disabledStyles),
+    img: css({
+      width: '16px',
+      height: '16px',
+      margin: theme.spacing(0, 1, 0, 0.5),
+    }),
+    icon: iconOnly
+      ? css({
+          // Important not to set margin bottom here as it would override internal icon bottom margin
+          marginRight: theme.spacing(-padding / 2),
+          marginLeft: theme.spacing(-padding / 2),
+        })
+      : css({
+          marginRight: theme.spacing(padding / 2),
+        }),
+    content: css({
+      display: 'flex',
+      flexDirection: 'row',
+      alignItems: 'center',
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      height: '100%',
+    }),
   };
 };
 
-function getButtonVariantStyles(from: string, to: string, textColor: string, theme: GrafanaTheme) {
-  return css`
-    background: linear-gradient(180deg, ${from} 0%, ${to} 100%);
-    color: ${textColor};
-    &:hover {
-      background: ${from};
-      color: ${textColor};
-    }
+function getButtonVariantStyles(theme: GrafanaTheme2, color: ThemeRichColor, fill: ButtonFill): CSSObject {
+  let outlineBorderColor = color.border;
+  let borderColor = 'transparent';
+  let hoverBorderColor = 'transparent';
 
-    &:focus {
-      background: ${from};
-      outline: none;
-      ${focusCss(theme)};
-    }
-  `;
+  // Secondary button has some special rules as we lack theem color token to
+  // specify border color for normal button vs border color for outline button
+  if (color.name === 'secondary') {
+    borderColor = color.border;
+    hoverBorderColor = theme.colors.emphasize(color.border, 0.25);
+    outlineBorderColor = theme.colors.border.strong;
+  }
+
+  if (fill === 'outline') {
+    return {
+      background: 'transparent',
+      color: color.text,
+      border: `1px solid ${outlineBorderColor}`,
+      transition: theme.transitions.create(['background-color', 'border-color', 'color'], {
+        duration: theme.transitions.duration.short,
+      }),
+
+      '&:hover': {
+        background: color.transparent,
+        borderColor: theme.colors.emphasize(outlineBorderColor, 0.25),
+        color: color.text,
+      },
+    };
+  }
+
+  if (fill === 'text') {
+    return {
+      background: 'transparent',
+      color: color.text,
+      border: '1px solid transparent',
+      transition: theme.transitions.create(['background-color', 'color'], {
+        duration: theme.transitions.duration.short,
+      }),
+
+      '&:focus': {
+        outline: 'none',
+        textDecoration: 'none',
+      },
+
+      '&:hover': {
+        background: color.transparent,
+        textDecoration: 'none',
+      },
+    };
+  }
+
+  return {
+    background: color.main,
+    color: color.contrastText,
+    border: `1px solid ${borderColor}`,
+    transition: theme.transitions.create(['background-color', 'box-shadow', 'border-color', 'color'], {
+      duration: theme.transitions.duration.short,
+    }),
+
+    '&:hover': {
+      background: color.shade,
+      color: color.contrastText,
+      boxShadow: theme.shadows.z1,
+      borderColor: hoverBorderColor,
+    },
+  };
 }
 
-export function getPropertiesForVariant(theme: GrafanaTheme, variant: ButtonVariant) {
+function getPropertiesForDisabled(theme: GrafanaTheme2, variant: ButtonVariant, fill: ButtonFill) {
+  const disabledStyles: CSSObject = {
+    cursor: 'not-allowed',
+    boxShadow: 'none',
+    color: theme.colors.text.disabled,
+    transition: 'none',
+  };
+
+  if (fill === 'text') {
+    return {
+      ...disabledStyles,
+      background: 'transparent',
+      border: `1px solid transparent`,
+    };
+  }
+
+  if (fill === 'outline') {
+    return {
+      ...disabledStyles,
+      background: 'transparent',
+      border: `1px solid ${theme.colors.border.weak}`,
+    };
+  }
+
+  return {
+    ...disabledStyles,
+    background: theme.colors.action.disabledBackground,
+    border: `1px solid transparent`,
+  };
+}
+
+export function getPropertiesForVariant(theme: GrafanaTheme2, variant: ButtonVariant, fill: ButtonFill) {
   switch (variant) {
     case 'secondary':
-      const from = theme.isLight ? theme.palette.gray7 : theme.palette.gray15;
-      const to = theme.isLight ? tinycolor(from).darken(5).toString() : tinycolor(from).lighten(4).toString();
-      return {
-        borderColor: theme.isLight ? theme.palette.gray85 : theme.palette.gray25,
-        variantStyles: getButtonVariantStyles(
-          from,
-          to,
-          theme.isLight ? theme.palette.gray25 : theme.palette.gray4,
-          theme
-        ),
-      };
+      // The seconday button has some special handling as it's outline border is it's default color border
+      return getButtonVariantStyles(theme, theme.colors.secondary, fill);
 
     case 'destructive':
-      return {
-        borderColor: theme.palette.redShade,
-        variantStyles: getButtonVariantStyles(
-          theme.palette.redBase,
-          theme.palette.redShade,
-          theme.palette.white,
-          theme
-        ),
-      };
+      return getButtonVariantStyles(theme, theme.colors.error, fill);
 
-    case 'link':
-      return {
-        borderColor: 'transparent',
-        variantStyles: css`
-          background: transparent;
-          color: ${theme.colors.linkExternal};
-
-          &:focus {
-            outline: none;
-            text-decoration: underline;
-          }
-        `,
-      };
+    case 'success':
+      return getButtonVariantStyles(theme, theme.colors.success, fill);
 
     case 'primary':
     default:
-      return {
-        borderColor: theme.colors.bgBlue1,
-        variantStyles: getButtonVariantStyles(theme.colors.bgBlue1, theme.colors.bgBlue2, theme.palette.white, theme),
-      };
+      return getButtonVariantStyles(theme, theme.colors.primary, fill);
   }
 }
+
+export const clearButtonStyles = (theme: GrafanaTheme2) => {
+  return css({
+    background: 'transparent',
+    color: theme.colors.text.primary,
+    border: 'none',
+    padding: 0,
+  });
+};
+
+export const clearLinkButtonStyles = (theme: GrafanaTheme2) => {
+  return css({
+    background: 'transparent',
+    border: 'none',
+    padding: 0,
+    fontFamily: 'inherit',
+    color: 'inherit',
+    height: '100%',
+    '&:hover': {
+      background: 'transparent',
+      color: 'inherit',
+    },
+  });
+};

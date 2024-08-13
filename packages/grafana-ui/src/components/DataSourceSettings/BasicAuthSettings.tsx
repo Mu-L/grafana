@@ -1,15 +1,17 @@
 import React from 'react';
-import { HttpSettingsProps } from './types';
+
+import { InlineField } from '../../components/Forms/InlineField';
 import { FormField } from '../FormField/FormField';
 import { SecretFormField } from '../SecretFormField/SecretFormField';
 
-export const BasicAuthSettings: React.FC<HttpSettingsProps> = ({ dataSourceConfig, onChange }) => {
+import { HttpSettingsProps } from './types';
+
+export const BasicAuthSettings = ({ dataSourceConfig, onChange }: HttpSettingsProps) => {
   const password = dataSourceConfig.secureJsonData ? dataSourceConfig.secureJsonData.basicAuthPassword : '';
 
   const onPasswordReset = () => {
     onChange({
       ...dataSourceConfig,
-      basicAuthPassword: '',
       secureJsonData: {
         ...dataSourceConfig.secureJsonData,
         basicAuthPassword: '',
@@ -33,7 +35,7 @@ export const BasicAuthSettings: React.FC<HttpSettingsProps> = ({ dataSourceConfi
 
   return (
     <>
-      <div className="gf-form">
+      <InlineField disabled={dataSourceConfig.readOnly}>
         <FormField
           label="User"
           labelWidth={10}
@@ -42,20 +44,17 @@ export const BasicAuthSettings: React.FC<HttpSettingsProps> = ({ dataSourceConfi
           value={dataSourceConfig.basicAuthUser}
           onChange={(event) => onChange({ ...dataSourceConfig, basicAuthUser: event.currentTarget.value })}
         />
-      </div>
-      <div className="gf-form">
+      </InlineField>
+      <InlineField disabled={dataSourceConfig.readOnly}>
         <SecretFormField
-          isConfigured={
-            !!dataSourceConfig.basicAuthPassword ||
-            !!(dataSourceConfig.secureJsonFields && dataSourceConfig.secureJsonFields.basicAuthPassword)
-          }
+          isConfigured={!!(dataSourceConfig.secureJsonFields && dataSourceConfig.secureJsonFields.basicAuthPassword)}
           value={password || ''}
           inputWidth={18}
           labelWidth={10}
           onReset={onPasswordReset}
           onChange={onPasswordChange}
         />
-      </div>
+      </InlineField>
     </>
   );
 };

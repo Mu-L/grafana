@@ -1,3 +1,5 @@
+import { omitBy, isNil, isNumber, defaultTo, groupBy } from 'lodash';
+
 import {
   PanelModel,
   FieldMatcherID,
@@ -5,13 +7,12 @@ import {
   ThresholdsMode,
   ThresholdsConfig,
   FieldConfig,
+  DataFrame,
+  FieldType,
 } from '@grafana/data';
 import { ReduceTransformerOptions } from '@grafana/data/src/transformations/transformers/reduce';
-import omitBy from 'lodash/omitBy';
-import isNil from 'lodash/isNil';
-import isNumber from 'lodash/isNumber';
-import defaultTo from 'lodash/defaultTo';
-import { Options } from './types';
+
+import { Options } from './panelcfg.gen';
 
 /**
  * At 7.0, the `table` panel was swapped from an angular implementation to a react one.
@@ -20,7 +21,7 @@ import { Options } from './types';
  */
 export const tableMigrationHandler = (panel: PanelModel<Options>): Partial<Options> => {
   // Table was saved as an angular table, lets just swap to the 'table-old' panel
-  if (!panel.pluginVersion && (panel as any).columns) {
+  if (!panel.pluginVersion && 'columns' in panel) {
     console.log('Was angular table', panel);
   }
 
@@ -40,7 +41,7 @@ const columnsMap = {
   min: 'min',
   max: 'max',
   total: 'sum',
-  current: 'last',
+  current: 'lastNotNull',
   count: 'count',
 };
 
@@ -164,8 +165,10 @@ const migrateTableStyleToOverride = (style: Style) => {
 
   if (style.colorMode) {
     override.properties.push({
-      id: 'custom.displayMode',
-      value: colorModeMap[style.colorMode],
+      id: 'custom.cellOptions',
+      value: {
+        type: colorModeMap[style.colorMode],
+      },
     });
   }
 
@@ -201,17 +204,23 @@ const migrateDefaults = (prevDefaults: Style) => {
         displayName: prevDefaults.alias,
         custom: {
           align: prevDefaults.align === 'auto' ? null : prevDefaults.align,
-          displayMode: colorModeMap[prevDefaults.colorMode],
         },
       },
       isNil
     );
+
     if (prevDefaults.thresholds.length) {
       const thresholds: ThresholdsConfig = {
         mode: ThresholdsMode.Absolute,
         steps: generateThresholds(prevDefaults.thresholds, prevDefaults.colors),
       };
       defaults.thresholds = thresholds;
+    }
+
+    if (prevDefaults.colorMode) {
+      defaults.custom.cellOptions = {
+        type: colorModeMap[prevDefaults.colorMode],
+      };
     }
   }
   return defaults;
@@ -241,4 +250,43 @@ export const tablePanelChangedHandler = (
   }
 
   return {};
+};
+
+const getMainFrames = (frames: DataFrame[] | null) => {
+  return frames?.filter((df) => df.meta?.custom?.parentRowIndex === undefined) || [frames?.[0]];
+};
+
+/**
+ * In 9.3 meta.custom.parentRowIndex was introduced to support sub-tables.
+ * In 10.2 meta.custom.parentRowIndex was deprecated in favor of FieldType.nestedFrames, which supports multiple nested frames.
+ * Migrate DataFrame[] from using meta.custom.parentRowIndex to using FieldType.nestedFrames
+ */
+export const migrateFromParentRowIndexToNestedFrames = (frames: DataFrame[] | null) => {
+  const migratedFrames: DataFrame[] = [];
+  const mainFrames = getMainFrames(frames).filter(
+    (frame: DataFrame | undefined): frame is DataFrame => !!frame && frame.length !== 0
+  );
+
+  mainFrames?.forEach((frame) => {
+    const subFrames = frames?.filter((df) => frame.refId === df.refId && df.meta?.custom?.parentRowIndex !== undefined);
+    const subFramesGrouped = groupBy(subFrames, (frame: DataFrame) => frame.meta?.custom?.parentRowIndex);
+    const subFramesByIndex = Object.keys(subFramesGrouped).map((key) => subFramesGrouped[key]);
+    const migratedFrame = { ...frame };
+
+    if (subFrames && subFrames.length > 0) {
+      migratedFrame.fields.push({
+        name: 'nested',
+        type: FieldType.nestedFrames,
+        config: {},
+        values: subFramesByIndex,
+      });
+    }
+    migratedFrames.push(migratedFrame);
+  });
+
+  return migratedFrames;
+};
+
+export const hasDeprecatedParentRowIndex = (frames: DataFrame[] | null) => {
+  return frames?.some((df) => df.meta?.custom?.parentRowIndex !== undefined);
 };

@@ -1,12 +1,23 @@
-+++
-title = "What's New in Grafana v7.3"
-description = "Feature and improvement highlights for Grafana v7.3"
-keywords = ["grafana", "new", "documentation", "7.3", "release notes"]
-aliases = ["/docs/grafana/latest/guides/whats-new-in-v7-3/"]
-weight = -30
-[_build]
-list = false
-+++
+---
+_build:
+  list: false
+aliases:
+  - ../guides/whats-new-in-v7-3/
+description: Learn about new and updated features in Grafana v7.3
+keywords:
+  - grafana
+  - new
+  - documentation
+  - '7.3'
+  - release notes
+labels:
+  products:
+    - cloud
+    - enterprise
+    - oss
+title: What's new in Grafana v7.3
+weight: -30
+---
 
 # What's new in Grafana v7.3
 
@@ -26,15 +37,15 @@ The main highlights are:
 The table has been updated with improved hover behavior for cells that have longer content than what fits the current column width. As you can see
 in the animated gif below the cell will automatically expand to show you full content of the cell.
 
-{{< figure src="/img/docs/v73/table_hover.gif" max-width="900px" caption="Table hover" >}}
+{{< figure src="/static/img/docs/v73/table_hover.gif" max-width="900px" caption="Table hover" >}}
 
 Another new feature that can be seen in the image above is the new image cell display mode. If you have a field value that is an image URL or a base64 encoded image you can configure the table to display it as an image.
 
 ## New color scheme option
 
-{{< figure src="/img/docs/v73/color_scheme_dropdown.png" max-width="450px" caption="Color scheme" class="pull-right" >}}
+{{< figure src="/static/img/docs/v73/color_scheme_dropdown.png" max-width="450px" caption="Color scheme" class="pull-right" >}}
 
-A new standard field [color scheme]({{< relref "../panels/field-options/standard-field-options.md#color-scheme" >}}) option has been added. This new option will provide a unified way for all new panels to specify how colors should be assigned.
+A new standard field color scheme option has been added. This new option will provide a unified way for all new panels to specify how colors should be assigned. For more information, refer to [Apply color to series and fields]({{< relref "../panels-visualizations/configure-standard-options#color-scheme" >}}).
 
 - **Single color**: Specifies a single color. Useful in an override rule.
 - **From thresholds**: Informs Grafana to take color from the matching threshold.
@@ -47,21 +58,21 @@ A new standard field [color scheme]({{< relref "../panels/field-options/standard
 
 As you can see this adds new continuous color schemes where Grafana will interpolate colors. A great use of these new color schemes is the table panel where you can color the background and get a heatmap like effect.
 
-{{< figure src="/img/docs/v73/table_color_scheme.png" max-width="900px" caption="table color scheme" >}}
+{{< figure src="/static/img/docs/v73/table_color_scheme.png" max-width="900px" caption="table color scheme" >}}
 
 Another thing to highlight is that all these new color schemes are theme aware and adapt to the current theme. For example here is how the new monochrome color scheme look like in the light theme:
 
-{{< figure src="/img/docs/v73/table_color_scheme_mono_light.png" max-width="900px" caption="table color monochrome scheme" >}}
+{{< figure src="/static/img/docs/v73/table_color_scheme_mono_light.png" max-width="900px" caption="table color monochrome scheme" >}}
 
-As this new option is a standard field option it works in every panel. Here is another example from the [Bar Gauge]({{< relref "../panels/visualizations/bar-gauge-panel.md" >}}) panel.
+As this new option is a standard field option it works in every panel. Here is another example from the [Bar Gauge]({{< relref "../panels-visualizations/visualizations/bar-gauge" >}}) panel.
 
-{{< figure src="/img/docs/v73/bar_gauge_gradient_color_scheme.png" max-width="900px" caption="bar gauge color scheme" >}}
+{{< figure src="/static/img/docs/v73/bar_gauge_gradient_color_scheme.png" max-width="900px" caption="bar gauge color scheme" >}}
 
 ## CSV exports for Excel
 
 In v7.0, we introduced a new table panel and inspect mode with Download CSV enabled. However, CSV export to Excel was removed. Due to a large number of inquiries and requests, this [community contribution from tomdaly](https://github.com/grafana/grafana/pull/27284) brought the feature back.
 
-For more information, refer to [Download raw query results as CSV]({{< relref "../panels/inspect-panel/#download-raw-query-results-as-csv" >}}) in the Grafana documentation.
+For more information, refer to [Download raw query results]({{< relref "../panels-visualizations/panel-inspector#download-raw-query-results" >}}).
 
 ## Google Cloud monitoring out-of-the-box dashboards
 
@@ -75,7 +86,7 @@ The updated Google Cloud monitoring data source is shipped with pre-configured d
 
 To import the pre-configured dashboards, go to the configuration page of your Google Cloud Monitoring data source and click on the `Dashboards` tab. Click `Import` for the dashboard you would like to use. To customize the dashboard, we recommend to save the dashboard under a different name, because otherwise the dashboard will be overwritten when a new version of the dashboard is released.
 
-For more details, see the [Google Cloud Monitoring docs]({{<relref "../datasources/google-cloud-monitoring/_index.md/#out-of-the-box-dashboards">}})
+For more details, see the [Google Cloud Monitoring docs]({{< relref "../datasources/google-cloud-monitoring#out-of-the-box-dashboards" >}})
 
 ## Shorten URL for dashboards and Explore
 
@@ -85,7 +96,7 @@ This is an amazing new feature that was created in cooperation with one of our c
 
 You can now configure your Elasticsearch data source to access your Amazon Elasticsearch Service domain directly from Grafana.
 
-For more details, refer to the [Elasticsearch docs]({{<relref "../datasources/elasticsearch/#aws-signature-version-4-authentication">}}).
+For more details, refer to the [Elasticsearch docs]({{< relref "../datasources/elasticsearch#aws-signature-version-4-authentication" >}}).
 
 ## Chaining pipeline aggregation in Elasticsearch
 
@@ -121,7 +132,7 @@ Example of a login event:
 }
 ```
 
-For more details, see the [Auditing docs]({{<relref "../enterprise/auditing.md">}}).
+For more details, see the [Auditing docs]({{< relref "../setup-grafana/configure-security/audit-grafana" >}}).
 
 ### Data source usage insights
 
@@ -135,15 +146,11 @@ Insights:
 
 ### SAML single logout
 
-SAML’s single logout (SLO) capability allows users to log out from all applications associated with the current identity provider (IdP) session established via SAML SSO. For more information, refer to the [docs]({{<relref "../enterprise/saml/#single-logout">}}).
+SAML’s single logout (SLO) capability allows users to log out from all applications associated with the current identity provider (IdP) session established via SAML SSO. For more information, refer to the [docs]({{< relref "../setup-grafana/configure-security/configure-authentication/saml#single-logout" >}}).
 
 ### SAML IdP-initiated single sign on
 
-IdP-initiated single sign on (SSO) allows the user to log in directly from the SAML identity provider (IdP). It is disabled by default for security reasons. For more information, refer to the [docs]({{<relref "../enterprise/saml/#idp-initiated-single-sign-on-sso">}}).
-
-## Upgrading
-
-See [upgrade notes]({{< relref "../installation/upgrading.md" >}}).
+IdP-initiated single sign on (SSO) allows the user to log in directly from the SAML identity provider (IdP). It is disabled by default for security reasons. For more information, refer to the [docs]({{< relref "../setup-grafana/configure-security/configure-authentication/saml#idp-initiated-single-sign-on-sso" >}}).
 
 ## Changelog
 
@@ -151,11 +158,11 @@ Check out [CHANGELOG.md](https://github.com/grafana/grafana/blob/master/CHANGELO
 
 ## Patch release notes
 
-- [Grafana 7.3.0 release notes]({{< relref "../release-notes/release-notes-7-3-0.md" >}})
-- [Grafana 7.3.1 release notes]({{< relref "../release-notes/release-notes-7-3-1.md" >}})
-- [Grafana 7.3.2 release notes]({{< relref "../release-notes/release-notes-7-3-2.md" >}})
-- [Grafana 7.3.3 release notes]({{< relref "../release-notes/release-notes-7-3-3.md" >}})
-- [Grafana 7.3.4 release notes]({{< relref "../release-notes/release-notes-7-3-4.md" >}})
-- [Grafana 7.3.5 release notes]({{< relref "../release-notes/release-notes-7-3-5.md" >}})
-- [Grafana 7.3.6 release notes]({{< relref "../release-notes/release-notes-7-3-6.md" >}})
-- [Grafana 7.3.7 release notes]({{< relref "../release-notes/release-notes-7-3-7.md" >}})
+- [Grafana 7.3.0 release notes]({{< relref "../release-notes/release-notes-7-3-0" >}})
+- [Grafana 7.3.1 release notes]({{< relref "../release-notes/release-notes-7-3-1" >}})
+- [Grafana 7.3.2 release notes]({{< relref "../release-notes/release-notes-7-3-2" >}})
+- [Grafana 7.3.3 release notes]({{< relref "../release-notes/release-notes-7-3-3" >}})
+- [Grafana 7.3.4 release notes]({{< relref "../release-notes/release-notes-7-3-4" >}})
+- [Grafana 7.3.5 release notes]({{< relref "../release-notes/release-notes-7-3-5" >}})
+- [Grafana 7.3.6 release notes]({{< relref "../release-notes/release-notes-7-3-6" >}})
+- [Grafana 7.3.7 release notes]({{< relref "../release-notes/release-notes-7-3-7" >}})

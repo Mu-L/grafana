@@ -1,16 +1,22 @@
+import { cx } from '@emotion/css';
+import { isObject } from 'lodash';
 import React, { HTMLProps } from 'react';
-import { cx } from 'emotion';
-import _ from 'lodash';
-import { SelectableValue } from '@grafana/data';
-import { SegmentSelect, useExpandableLabel, SegmentProps } from './';
-import { getSegmentStyles } from './styles';
-import { InlineLabel } from '../Forms/InlineLabel';
-import { useStyles } from '../../themes';
 
-export interface SegmentSyncProps<T> extends SegmentProps<T>, Omit<HTMLProps<HTMLDivElement>, 'value' | 'onChange'> {
+import { SelectableValue } from '@grafana/data';
+
+import { useStyles2 } from '../../themes';
+import { InlineLabel } from '../Forms/InlineLabel';
+
+import { SegmentSelect } from './SegmentSelect';
+import { getSegmentStyles } from './styles';
+import { SegmentProps } from './types';
+import { useExpandableLabel } from './useExpandableLabel';
+
+export interface SegmentSyncProps<T> extends SegmentProps, Omit<HTMLProps<HTMLDivElement>, 'value' | 'onChange'> {
   value?: T | SelectableValue<T>;
   onChange: (item: SelectableValue<T>) => void;
   options: Array<SelectableValue<T>>;
+  inputMinWidth?: number;
 }
 
 export function Segment<T>({
@@ -20,15 +26,22 @@ export function Segment<T>({
   Component,
   className,
   allowCustomValue,
+  allowEmptyValue,
   placeholder,
   disabled,
+  inputMinWidth,
+  inputPlaceholder,
+  onExpandedChange,
+  autofocus = false,
   ...rest
 }: React.PropsWithChildren<SegmentSyncProps<T>>) {
-  const [Label, width, expanded, setExpanded] = useExpandableLabel(false);
-  const styles = useStyles(getSegmentStyles);
+  const [Label, labelWidth, expanded, setExpanded] = useExpandableLabel(autofocus, onExpandedChange);
+  const width = inputMinWidth ? Math.max(inputMinWidth, labelWidth) : labelWidth;
+  const styles = useStyles2(getSegmentStyles);
 
   if (!expanded) {
-    const label = _.isObject(value) ? value.label : value;
+    const label = isObject(value) ? value.label : value;
+    const labelAsString = label != null ? String(label) : undefined;
 
     return (
       <Label
@@ -45,7 +58,7 @@ export function Segment<T>({
                 className
               )}
             >
-              {label || placeholder}
+              {labelAsString || placeholder}
             </InlineLabel>
           )
         }
@@ -56,11 +69,13 @@ export function Segment<T>({
   return (
     <SegmentSelect
       {...rest}
-      value={value && !_.isObject(value) ? { value } : value}
+      value={value && !isObject(value) ? { value } : value}
+      placeholder={inputPlaceholder}
       options={options}
       width={width}
       onClickOutside={() => setExpanded(false)}
       allowCustomValue={allowCustomValue}
+      allowEmptyValue={allowEmptyValue}
       onChange={(item) => {
         setExpanded(false);
         onChange(item);

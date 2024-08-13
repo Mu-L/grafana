@@ -1,17 +1,14 @@
+import { StoryFn, Meta } from '@storybook/react';
 import React from 'react';
-import { Story } from '@storybook/react';
-import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
-import { ButtonCascader } from '@grafana/ui';
-import { NOOP_CONTROL } from '../../utils/storybook/noopControl';
-import { ButtonCascaderProps } from './ButtonCascader';
 
-export default {
+import { ButtonCascader } from '@grafana/ui';
+
+const meta: Meta<typeof ButtonCascader> = {
   title: 'Forms/Cascader/ButtonCascader',
   component: ButtonCascader,
-  decorators: [withCenteredStory],
   parameters: {
-    knobs: {
-      disable: true,
+    controls: {
+      exclude: ['className', 'value', 'fieldNames', 'loadData', 'onChange', 'onPopupVisibleChange'],
     },
   },
   args: {
@@ -32,13 +29,10 @@ export default {
   argTypes: {
     icon: { control: { type: 'select', options: ['plus', 'minus', 'table'] } },
     options: { control: 'object' },
-    className: NOOP_CONTROL,
-    value: NOOP_CONTROL,
-    fieldNames: NOOP_CONTROL,
   },
 };
 
-const Template: Story<ButtonCascaderProps> = ({ children, ...args }) => {
+const Template: StoryFn<typeof ButtonCascader> = ({ children, ...args }) => {
   return <ButtonCascader {...args}>{children}</ButtonCascader>;
 };
 
@@ -48,3 +42,5 @@ export const withIcon = Template.bind({});
 withIcon.args = {
   icon: 'plus',
 };
+
+export default meta;

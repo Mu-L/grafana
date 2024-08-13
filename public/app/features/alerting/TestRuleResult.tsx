@@ -1,13 +1,20 @@
 import React, { PureComponent } from 'react';
-import { LoadingPlaceholder, JSONFormatter, Icon } from '@grafana/ui';
 
-import appEvents from 'app/core/app_events';
-import { CopyToClipboard } from 'app/core/components/CopyToClipboard/CopyToClipboard';
-import { DashboardModel, PanelModel } from '../dashboard/state';
 import { getBackendSrv } from '@grafana/runtime';
-import { AppEvents } from '@grafana/data';
+import {
+  LoadingPlaceholder,
+  JSONFormatter,
+  Icon,
+  HorizontalGroup,
+  ClipboardButton,
+  clearButtonStyles,
+  withTheme2,
+  Themeable2,
+} from '@grafana/ui';
 
-export interface Props {
+import { DashboardModel, PanelModel } from '../dashboard/state';
+
+export interface Props extends Themeable2 {
   dashboard: DashboardModel;
   panel: PanelModel;
 }
@@ -18,7 +25,7 @@ interface State {
   testRuleResponse: {};
 }
 
-export class TestRuleResult extends PureComponent<Props, State> {
+class UnThemedTestRuleResult extends PureComponent<Props, State> {
   readonly state: State = {
     isLoading: false,
     allNodesExpanded: null,
@@ -36,11 +43,11 @@ export class TestRuleResult extends PureComponent<Props, State> {
     const { dashboard, panel } = this.props;
 
     // dashboard save model
-    const model = dashboard.getSaveModelClone();
+    const model = dashboard.getSaveModelCloneOld();
 
     // now replace panel to get current edits
     model.panels = model.panels.map((dashPanel) => {
-      return dashPanel.id === panel.editSourceId ? panel.getSaveModel() : dashPanel;
+      return dashPanel.id === panel.id ? panel.getSaveModel() : dashPanel;
     });
 
     const payload = { dashboard: model, panelId: panel.id };
@@ -56,10 +63,6 @@ export class TestRuleResult extends PureComponent<Props, State> {
 
   getTextForClipboard = () => {
     return JSON.stringify(this.formattedJson, null, 2);
-  };
-
-  onClipboardSuccess = () => {
-    appEvents.emit(AppEvents.alertSuccess, ['Content copied to clipboard']);
   };
 
   onToggleExpand = () => {
@@ -96,6 +99,7 @@ export class TestRuleResult extends PureComponent<Props, State> {
 
   render() {
     const { testRuleResponse, isLoading } = this.state;
+    const clearButton = clearButtonStyles(this.props.theme);
 
     if (isLoading === true) {
       return <LoadingPlaceholder text="Evaluating rule" />;
@@ -106,16 +110,14 @@ export class TestRuleResult extends PureComponent<Props, State> {
     return (
       <>
         <div className="pull-right">
-          <button className="btn btn-transparent btn-p-x-0 m-r-1" onClick={this.onToggleExpand}>
-            {this.renderExpandCollapse()}
-          </button>
-          <CopyToClipboard
-            className="btn btn-transparent btn-p-x-0"
-            text={this.getTextForClipboard}
-            onSuccess={this.onClipboardSuccess}
-          >
-            <Icon name="copy" /> Copy to Clipboard
-          </CopyToClipboard>
+          <HorizontalGroup spacing="md">
+            <button type="button" className={clearButton} onClick={this.onToggleExpand}>
+              {this.renderExpandCollapse()}
+            </button>
+            <ClipboardButton getText={this.getTextForClipboard} icon="copy">
+              Copy to Clipboard
+            </ClipboardButton>
+          </HorizontalGroup>
         </div>
 
         <JSONFormatter json={testRuleResponse} open={openNodes} onDidRender={this.setFormattedJson} />
@@ -123,3 +125,5 @@ export class TestRuleResult extends PureComponent<Props, State> {
     );
   }
 }
+
+export const TestRuleResult = withTheme2(UnThemedTestRuleResult);

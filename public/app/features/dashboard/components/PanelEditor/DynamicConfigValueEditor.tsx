@@ -1,8 +1,17 @@
-import { DynamicConfigValue, FieldConfigOptionsRegistry, FieldOverrideContext, GrafanaTheme } from '@grafana/data';
-import React from 'react';
-import { Counter, Field, HorizontalGroup, IconButton, Label, stylesFactory, useTheme } from '@grafana/ui';
-import { css, cx } from 'emotion';
-import { OptionsGroup } from './OptionsGroup';
+import { css, cx } from '@emotion/css';
+import React, { useId } from 'react';
+import Highlighter from 'react-highlight-words';
+
+import {
+  DynamicConfigValue,
+  FieldConfigOptionsRegistry,
+  FieldConfigProperty,
+  FieldOverrideContext,
+  GrafanaTheme2,
+} from '@grafana/data';
+import { Counter, Field, HorizontalGroup, IconButton, Label, useStyles2 } from '@grafana/ui';
+
+import { OptionsPaneCategory } from './OptionsPaneCategory';
 
 interface DynamicConfigValueEditorProps {
   property: DynamicConfigValue;
@@ -10,57 +19,76 @@ interface DynamicConfigValueEditorProps {
   onChange: (value: DynamicConfigValue) => void;
   context: FieldOverrideContext;
   onRemove: () => void;
-  isCollapsible?: boolean;
   isSystemOverride?: boolean;
+  searchQuery: string;
 }
 
-export const DynamicConfigValueEditor: React.FC<DynamicConfigValueEditorProps> = ({
+export const DynamicConfigValueEditor = ({
   property,
   context,
   registry,
   onChange,
   onRemove,
-  isCollapsible,
   isSystemOverride,
-}) => {
-  const theme = useTheme();
-  const styles = getStyles(theme);
+  searchQuery,
+}: DynamicConfigValueEditorProps) => {
+  const styles = useStyles2(getStyles);
   const item = registry?.getIfExists(property.id);
+
+  const componentId = useId();
 
   if (!item) {
     return null;
   }
+
+  const isCollapsible =
+    Array.isArray(property.value) ||
+    property.id === FieldConfigProperty.Thresholds ||
+    property.id === FieldConfigProperty.Links ||
+    property.id === FieldConfigProperty.Mappings;
+
+  const labelCategory = item.category?.filter((c) => c !== item.name);
   let editor;
 
-  // eslint-disable-next-line react/display-name
-  const renderLabel = (includeDescription = true, includeCounter = false) => (isExpanded = false) => (
-    <HorizontalGroup justify="space-between">
-      <Label
-        category={item.category?.filter((c) => c !== undefined) as string[]}
-        description={includeDescription ? item.description : undefined}
-      >
-        {item.name}
-        {!isExpanded && includeCounter && item.getItemsCount && <Counter value={item.getItemsCount(property.value)} />}
-      </Label>
-      {!isSystemOverride && (
-        <div>
-          <IconButton name="times" onClick={onRemove} />
-        </div>
-      )}
-    </HorizontalGroup>
-  );
+  /* eslint-disable react/display-name */
+  const renderLabel =
+    (includeDescription = true, includeCounter = false) =>
+    (isExpanded = false) => (
+      <HorizontalGroup justify="space-between">
+        <Label
+          category={labelCategory}
+          description={includeDescription ? item.description : undefined}
+          htmlFor={componentId}
+        >
+          <Highlighter
+            textToHighlight={item.name}
+            searchWords={[searchQuery]}
+            highlightClassName={'search-fragment-highlight'}
+          />
+          {!isExpanded && includeCounter && item.getItemsCount && (
+            <Counter value={item.getItemsCount(property.value)} />
+          )}
+        </Label>
+        {!isSystemOverride && (
+          <div>
+            <IconButton name="times" onClick={onRemove} tooltip="Remove label" />
+          </div>
+        )}
+      </HorizontalGroup>
+    );
+  /* eslint-enable react/display-name */
 
   if (isCollapsible) {
     editor = (
-      <OptionsGroup
+      <OptionsPaneCategory
         id={item.name}
         renderTitle={renderLabel(false, true)}
         className={css`
           padding-left: 0;
           padding-right: 0;
         `}
-        nested
-        defaultToClosed={property.value !== undefined}
+        isNested
+        isOpenDefault={property.value !== undefined}
       >
         <item.override
           value={property.value}
@@ -70,7 +98,7 @@ export const DynamicConfigValueEditor: React.FC<DynamicConfigValueEditorProps> =
           item={item}
           context={context}
         />
-      </OptionsGroup>
+      </OptionsPaneCategory>
     );
   } else {
     editor = (
@@ -83,6 +111,7 @@ export const DynamicConfigValueEditor: React.FC<DynamicConfigValueEditorProps> =
             }}
             item={item}
             context={context}
+            id={componentId}
           />
         </Field>
       </div>
@@ -101,13 +130,13 @@ export const DynamicConfigValueEditor: React.FC<DynamicConfigValueEditorProps> =
   );
 };
 
-const getStyles = stylesFactory((theme: GrafanaTheme) => {
+const getStyles = (theme: GrafanaTheme2) => {
   return {
     collapsibleOverrideEditor: css`
       label: collapsibleOverrideEditor;
       & + .dynamicConfigValueEditor--nonCollapsible {
-        margin-top: ${theme.spacing.formSpacingBase}px;
+        margin-top: ${theme.spacing(1)};
       }
     `,
   };
-});
+};

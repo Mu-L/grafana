@@ -1,5 +1,6 @@
 import { from, Observable, of } from 'rxjs';
 import { mergeMap } from 'rxjs/operators';
+
 import {
   DataQuery,
   DataQueryRequest,
@@ -10,15 +11,15 @@ import {
   VariableSupportType,
 } from '@grafana/data';
 
-import { QueryVariableModel } from '../types';
+import { TimeSrv } from '../../dashboard/services/TimeSrv';
 import {
   hasCustomVariableSupport,
   hasDatasourceVariableSupport,
   hasLegacyVariableSupport,
   hasStandardVariableSupport,
 } from '../guard';
+import { QueryVariableModel } from '../types';
 import { getLegacyQueryOptions } from '../utils';
-import { TimeSrv } from '../../dashboard/services/TimeSrv';
 
 export interface RunnerArgs {
   variable: QueryVariableModel;
@@ -82,7 +83,7 @@ class LegacyQueryRunner implements QueryRunner {
       return getEmptyMetricFindValueObservable();
     }
 
-    const queryOptions: any = getLegacyQueryOptions(variable, searchFilter, timeSrv);
+    const queryOptions: any = getLegacyQueryOptions(variable, searchFilter, timeSrv, request.scopedVars);
 
     return from(datasource.metricFindQuery(variable.query, queryOptions)).pipe(
       mergeMap((values) => {
@@ -121,7 +122,7 @@ class StandardQueryRunner implements QueryRunner {
       return runRequest(datasource, request);
     }
 
-    return runRequest(datasource, request, datasource.variables.query);
+    return runRequest(datasource, request, datasource.variables.query.bind(datasource.variables));
   }
 }
 
@@ -145,9 +146,11 @@ class CustomQueryRunner implements QueryRunner {
       return getEmptyMetricFindValueObservable();
     }
 
-    return runRequest(datasource, request, datasource.variables.query);
+    return runRequest(datasource, request, datasource.variables.query.bind(datasource.variables));
   }
 }
+
+export const variableDummyRefId = 'variable-query';
 
 class DatasourceQueryRunner implements QueryRunner {
   type = VariableSupportType.Datasource;
@@ -158,7 +161,7 @@ class DatasourceQueryRunner implements QueryRunner {
 
   getTarget({ datasource, variable }: GetTargetArgs) {
     if (hasDatasourceVariableSupport(datasource)) {
-      return variable.query;
+      return { ...variable.query, refId: variable.query.refId ?? variableDummyRefId };
     }
 
     throw new Error("Couldn't create a target with supplied arguments.");

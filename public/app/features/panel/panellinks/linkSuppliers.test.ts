@@ -1,23 +1,26 @@
-import { getFieldLinksSupplier } from './linkSuppliers';
-import { applyFieldOverrides, DataFrameView, dateTime, FieldDisplay, toDataFrame } from '@grafana/data';
-import { getLinkSrv, LinkService, LinkSrv, setLinkSrv } from './link_srv';
+import { applyFieldOverrides, createTheme, DataFrameView, dateTime, FieldDisplay, toDataFrame } from '@grafana/data';
+
 import { TemplateSrv } from '../../templating/template_srv';
-import { TimeSrv } from '../../dashboard/services/TimeSrv';
-import { getTheme } from '@grafana/ui';
+
+import { getFieldLinksSupplier } from './linkSuppliers';
+import { getLinkSrv, LinkService, LinkSrv, setLinkSrv } from './link_srv';
+
+// We do not need more here and TimeSrv is hard to setup fully.
+jest.mock('app/features/dashboard/services/TimeSrv', () => ({
+  getTimeSrv: () => ({
+    timeRangeForUrl() {
+      const from = dateTime().subtract(1, 'h');
+      const to = dateTime();
+      return { from, to, raw: { from, to } };
+    },
+  }),
+}));
 
 describe('getFieldLinksSupplier', () => {
   let originalLinkSrv: LinkService;
   let templateSrv = new TemplateSrv();
   beforeAll(() => {
-    // We do not need more here and TimeSrv is hard to setup fully.
-    const timeSrvMock: TimeSrv = {
-      timeRangeForUrl() {
-        const from = dateTime().subtract(1, 'h');
-        const to = dateTime();
-        return { from, to, raw: { from, to } };
-      },
-    } as any;
-    const linkService = new LinkSrv(new TemplateSrv(), timeSrvMock);
+    const linkService = new LinkSrv();
     originalLinkSrv = getLinkSrv();
 
     setLinkSrv(linkService);
@@ -93,7 +96,7 @@ describe('getFieldLinksSupplier', () => {
       },
       replaceVariables: (val: string) => val,
       timeZone: 'utc',
-      theme: getTheme(),
+      theme: createTheme(),
     })[0];
 
     const rowIndex = 0;
@@ -105,7 +108,7 @@ describe('getFieldLinksSupplier', () => {
       view: new DataFrameView(data),
       rowIndex,
       colIndex,
-      display: field.display!(field.values.get(rowIndex)),
+      display: field.display!(field.values[rowIndex]),
       hasLinks: true,
     };
 
@@ -117,36 +120,36 @@ describe('getFieldLinksSupplier', () => {
       };
     });
     expect(links).toMatchInlineSnapshot(`
-      Array [
-        Object {
-          "href": "http://go/100.200 kW",
+      [
+        {
+          "href": "http://go/100.200%20kW",
           "title": "By Name",
         },
-        Object {
-          "href": "http://go/100.200 kW",
+        {
+          "href": "http://go/100.200%20kW",
           "title": "By Index",
         },
-        Object {
-          "href": "http://go/100.200 kW",
+        {
+          "href": "http://go/100.200%20kW",
           "title": "By Title",
         },
-        Object {
+        {
           "href": "http://go/100.2000001",
           "title": "Numeric Value",
         },
-        Object {
+        {
           "href": "http://go/100.200",
           "title": "Text (no suffix)",
         },
-        Object {
+        {
           "href": "http://go/\${__data.fields.XYZ}",
           "title": "Unknown Field",
         },
-        Object {
-          "href": "http://go/Hello Templates",
+        {
+          "href": "http://go/Hello%20Templates",
           "title": "Data Frame name",
         },
-        Object {
+        {
           "href": "http://go/ZZZ",
           "title": "Data Frame refId",
         },

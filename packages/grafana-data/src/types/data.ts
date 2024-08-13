@@ -1,6 +1,10 @@
-import { FieldConfig } from './dataFrame';
-import { DataTransformerConfig } from './transformations';
+import { DataFrameDTO, FieldConfig } from './dataFrame';
+import { DataFrameType } from './dataFrameTypes';
 import { ApplyFieldOverrideOptions } from './fieldOverrides';
+import { DataTopic } from './query';
+import { DataTransformerConfig } from './transformations';
+
+import { PanelPluginDataSupport } from '.';
 
 export type KeyValue<T = any> = Record<string, T>;
 
@@ -16,16 +20,30 @@ export enum LoadingState {
   Error = 'Error',
 }
 
-export enum DataTopic {
-  Annotations = 'annotations',
-}
-
-export type PreferredVisualisationType = 'graph' | 'table' | 'logs' | 'trace' | 'nodeGraph';
+// Should be kept in sync with grafana-plugin-sdk-go/data/frame_meta.go
+export const preferredVisualizationTypes = [
+  'graph',
+  'table',
+  'logs',
+  'trace',
+  'nodeGraph',
+  'flamegraph',
+  'rawPrometheus',
+] as const;
+export type PreferredVisualisationType = (typeof preferredVisualizationTypes)[number];
 
 /**
  * @public
  */
 export interface QueryResultMeta {
+  type?: DataFrameType;
+
+  /**
+   * TypeVersion is the version of the Type property. Versions greater than 0.0 correspond to the dataplane
+   * contract documentation https://github.com/grafana/grafana-plugin-sdk-go/tree/main/data/contract_docs.
+   */
+  typeVersion?: [number, number];
+
   /** DatasSource Specific Values */
   custom?: Record<string, any>;
 
@@ -40,6 +58,19 @@ export interface QueryResultMeta {
 
   /** Currently used to show results in Explore only in preferred visualisation option */
   preferredVisualisationType?: PreferredVisualisationType;
+
+  /** Set the panel plugin id to use to render the data when using Explore. If the plugin cannot be found
+   * will fall back to {@link preferredVisualisationType}.
+   *
+   * @alpha
+   */
+  preferredVisualisationPluginId?: string;
+
+  /** The path for live stream updates for this frame */
+  channel?: string;
+
+  /** Did the query response come from the cache */
+  isCachedResponse?: boolean;
 
   /**
    * Optionally identify which topic the frame should be assigned to.
@@ -63,10 +94,15 @@ export interface QueryResultMeta {
    */
   pathSeparator?: string;
 
+  /** A time shift metadata indicating a result of comparison */
+  timeCompare?: {
+    diffMs: number;
+    isTimeShiftQuery: boolean;
+  };
+
   /**
    * Legacy data source specific, should be moved to custom
    * */
-  alignmentPeriod?: number; // used by cloud monitoring
   searchWords?: string[]; // used by log models and loki
   limit?: number; // used by log models and loki
   json?: boolean; // used to keep track of old json doc values
@@ -124,6 +160,7 @@ export interface Labels {
   [key: string]: string;
 }
 
+/** @deprecated this is a very old (pre Grafana 7 + DataFrame) representation for tabular data  */
 export interface Column {
   text: string; // For a Column, the 'text' is the field name
   filterable?: boolean;
@@ -131,6 +168,7 @@ export interface Column {
   custom?: Record<string, any>;
 }
 
+/** @deprecated this is a very old (pre Grafana 7 + DataFrame) representation for tabular data  */
 export interface TableData extends QueryResultBase {
   name?: string;
   columns: Column[];
@@ -138,10 +176,13 @@ export interface TableData extends QueryResultBase {
   type?: string;
 }
 
+/** @deprecated this is a very old (pre Grafana 7 + DataFrame) representation for tabular data  */
 export type TimeSeriesValue = number | null;
 
+/** @deprecated this is a very old (pre Grafana 7 + DataFrame) representation for tabular data  */
 export type TimeSeriesPoints = TimeSeriesValue[][];
 
+/** @deprecated this is a very old (pre Grafana 7 + DataFrame) representation for tabular data  */
 export interface TimeSeries extends QueryResultBase {
   target: string;
   /**
@@ -163,6 +204,36 @@ export enum NullValueMode {
  * Describes and API for exposing panel specific data configurations.
  */
 export interface DataConfigSource {
+  configRev?: number;
+  getDataSupport: () => PanelPluginDataSupport;
   getTransformations: () => DataTransformerConfig[] | undefined;
   getFieldOverrideOptions: () => ApplyFieldOverrideOptions | undefined;
+  snapshotData?: DataFrameDTO[];
+}
+
+type Truthy<T> = T extends false | '' | 0 | null | undefined ? never : T;
+export const isTruthy = <T>(value: T): value is Truthy<T> => Boolean(value);
+
+/**
+ * Serves no runtime purpose - only used to make typescript check a value has been correctly
+ * narrowed to an object
+ */
+function identityObject(value: object): object {
+  return value;
+}
+
+/**
+ * Utility type predicate to check if a value is typeof object, but excludes "null".
+ *
+ * We normally discourage the use of type predicates in favor of just inline typescript narrowing,
+ * but this is a special case to handle null annoyingly being typeof object
+ */
+export function isObject(value: unknown): value is object {
+  if (typeof value === 'object' && value !== null) {
+    identityObject(value);
+
+    return true;
+  }
+
+  return false;
 }

@@ -1,22 +1,16 @@
 import React, { PureComponent } from 'react';
+
 import { selectors as e2eSelectors } from '@grafana/e2e-selectors';
-import { Field, RadioButtonGroup, Switch, ClipboardButton, Icon, InfoBox, Input, FieldSet } from '@grafana/ui';
-import { SelectableValue, PanelModel, AppEvents } from '@grafana/data';
-import { DashboardModel } from 'app/features/dashboard/state';
-import { buildImageUrl, buildShareUrl } from './utils';
-import { appEvents } from 'app/core/core';
+import { Alert, ClipboardButton, Field, FieldSet, Input, Switch, TextLink } from '@grafana/ui';
 import config from 'app/core/config';
+import { t, Trans } from 'app/core/internationalization';
+import { DashboardInteractions } from 'app/features/dashboard-scene/utils/interactions';
 
-const themeOptions: Array<SelectableValue<string>> = [
-  { label: 'Current', value: 'current' },
-  { label: 'Dark', value: 'dark' },
-  { label: 'Light', value: 'light' },
-];
+import { ThemePicker } from './ThemePicker';
+import { ShareModalTabProps } from './types';
+import { buildImageUrl, buildShareUrl } from './utils';
 
-export interface Props {
-  dashboard: DashboardModel;
-  panel?: PanelModel;
-}
+export interface Props extends ShareModalTabProps {}
 
 export interface State {
   useCurrentTimeRange: boolean;
@@ -36,6 +30,7 @@ export class ShareLink extends PureComponent<Props, State> {
       shareUrl: '',
       imageUrl: '',
     };
+    this.onCopy = this.onCopy.bind(this);
   }
 
   componentDidMount() {
@@ -54,11 +49,11 @@ export class ShareLink extends PureComponent<Props, State> {
   }
 
   buildUrl = async () => {
-    const { panel } = this.props;
+    const { panel, dashboard } = this.props;
     const { useCurrentTimeRange, useShortUrl, selectedTheme } = this.state;
 
     const shareUrl = await buildShareUrl(useCurrentTimeRange, selectedTheme, panel, useShortUrl);
-    const imageUrl = buildImageUrl(useCurrentTimeRange, selectedTheme, panel);
+    const imageUrl = buildImageUrl(useCurrentTimeRange, dashboard.uid, selectedTheme, panel);
 
     this.setState({ shareUrl, imageUrl });
   };
@@ -75,85 +70,108 @@ export class ShareLink extends PureComponent<Props, State> {
     this.setState({ selectedTheme: value });
   };
 
-  onShareUrlCopy = () => {
-    appEvents.emit(AppEvents.alertSuccess, ['Content copied to clipboard']);
-  };
-
   getShareUrl = () => {
     return this.state.shareUrl;
   };
 
+  onCopy() {
+    DashboardInteractions.shareLinkCopied({
+      currentTimeRange: this.state.useCurrentTimeRange,
+      theme: this.state.selectedTheme,
+      shortenURL: this.state.useShortUrl,
+    });
+  }
+
   render() {
-    const { panel } = this.props;
-    const isRelativeTime = this.props.dashboard ? this.props.dashboard.time.to === 'now' : false;
+    const { panel, dashboard } = this.props;
+    const isRelativeTime = dashboard ? dashboard.time.to === 'now' : false;
     const { useCurrentTimeRange, useShortUrl, selectedTheme, shareUrl, imageUrl } = this.state;
     const selectors = e2eSelectors.pages.SharePanelModal;
+    const isDashboardSaved = Boolean(dashboard.id);
+
+    const timeRangeLabelTranslation = t('share-modal.link.time-range-label', `Lock time range`);
+
+    const timeRangeDescriptionTranslation = t(
+      'share-modal.link.time-range-description',
+      `Transforms the current relative time range to an absolute time range`
+    );
+
+    const shortenURLTranslation = t('share-modal.link.shorten-url', `Shorten URL`);
+
+    const linkURLTranslation = t('share-modal.link.link-url', `Link URL`);
 
     return (
-      <div className="share-modal-body">
-        <div className="share-modal-header">
-          <div className="share-modal-content">
-            <p className="share-modal-info-text">
-              Create a direct link to this dashboard or panel, customized with the options below.
-            </p>
-            <FieldSet>
-              <Field
-                label="Lock time range"
-                description={
-                  isRelativeTime ? 'Transforms the current relative time range to an absolute time range' : ''
-                }
-              >
-                <Switch
-                  id="share-current-time-range"
-                  value={useCurrentTimeRange}
-                  onChange={this.onUseCurrentTimeRangeChange}
-                />
-              </Field>
-              <Field label="Theme">
-                <RadioButtonGroup options={themeOptions} value={selectedTheme} onChange={this.onThemeChange} />
-              </Field>
-              <Field label="Shorten URL">
-                <Switch id="share-shorten-url" value={useShortUrl} onChange={this.onUrlShorten} />
-              </Field>
+      <>
+        <p className="share-modal-info-text">
+          <Trans i18nKey="share-modal.link.info-text">
+            Create a direct link to this dashboard or panel, customized with the options below.
+          </Trans>
+        </p>
+        <FieldSet>
+          <Field label={timeRangeLabelTranslation} description={isRelativeTime ? timeRangeDescriptionTranslation : ''}>
+            <Switch
+              id="share-current-time-range"
+              value={useCurrentTimeRange}
+              onChange={this.onUseCurrentTimeRangeChange}
+            />
+          </Field>
+          <ThemePicker selectedTheme={selectedTheme} onChange={this.onThemeChange} />
+          <Field label={shortenURLTranslation}>
+            <Switch id="share-shorten-url" value={useShortUrl} onChange={this.onUrlShorten} />
+          </Field>
 
-              <Field label="Link URL">
-                <Input
-                  value={shareUrl}
-                  readOnly
-                  addonAfter={
-                    <ClipboardButton variant="primary" getText={this.getShareUrl} onClipboardCopy={this.onShareUrlCopy}>
-                      <Icon name="copy" /> Copy
-                    </ClipboardButton>
-                  }
-                />
-              </Field>
-            </FieldSet>
-            {panel && config.rendererAvailable && (
-              <div className="gf-form">
-                <a href={imageUrl} target="_blank" rel="noreferrer" aria-label={selectors.linkToRenderedImage}>
-                  <Icon name="camera" /> Direct link rendered image
-                </a>
-              </div>
+          <Field label={linkURLTranslation}>
+            <Input
+              id="link-url-input"
+              value={shareUrl}
+              readOnly
+              addonAfter={
+                <ClipboardButton icon="copy" variant="primary" getText={this.getShareUrl} onClipboardCopy={this.onCopy}>
+                  <Trans i18nKey="share-modal.link.copy-link-button">Copy</Trans>
+                </ClipboardButton>
+              }
+            />
+          </Field>
+        </FieldSet>
+
+        {panel && config.rendererAvailable && (
+          <>
+            {isDashboardSaved && (
+              <TextLink href={imageUrl} external icon={'camera'} aria-label={selectors.linkToRenderedImage}>
+                {t('share-modal.link.rendered-image', 'Direct link rendered image')}
+              </TextLink>
             )}
-            {panel && !config.rendererAvailable && (
-              <InfoBox>
-                <p>
-                  <>To render a panel image, you must install the </>
-                  <a
-                    href="https://grafana.com/grafana/plugins/grafana-image-renderer"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="external-link"
-                  >
-                    Grafana Image Renderer plugin
-                  </a>
-                  . Please contact your Grafana administrator to install the plugin.
-                </p>
-              </InfoBox>
+
+            {!isDashboardSaved && (
+              <Alert
+                severity="info"
+                title={t('share-modal.link.save-alert', 'Dashboard is not saved')}
+                bottomSpacing={0}
+              >
+                <Trans i18nKey="share-modal.link.save-dashboard">
+                  To render a panel image, you must save the dashboard first.
+                </Trans>
+              </Alert>
             )}
-          </div>
-        </div>
-      </div>
+          </>
+        )}
+
+        {panel && !config.rendererAvailable && (
+          <Alert
+            severity="info"
+            title={t('share-modal.link.render-alert', 'Image renderer plugin not installed')}
+            bottomSpacing={0}
+          >
+            <Trans i18nKey="share-modal.link.render-instructions">
+              To render a panel image, you must install the
+              <TextLink href="https://grafana.com/grafana/plugins/grafana-image-renderer" external>
+                Grafana image renderer plugin
+              </TextLink>
+              . Please contact your Grafana administrator to install the plugin.
+            </Trans>
+          </Alert>
+        )}
+      </>
     );
   }
 }

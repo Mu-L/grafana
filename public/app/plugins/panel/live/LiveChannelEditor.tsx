@@ -1,21 +1,19 @@
+import { css } from '@emotion/css';
 import React, { PureComponent } from 'react';
-import { css } from 'emotion';
-import { Select, FeatureInfoBox, Label, stylesFactory } from '@grafana/ui';
+
 import {
   LiveChannelScope,
   LiveChannelAddress,
-  LiveChannelSupport,
   SelectableValue,
   StandardEditorProps,
-  FeatureState,
-  GrafanaTheme,
+  GrafanaTheme2,
 } from '@grafana/data';
-
-import { LivePanelOptions } from './types';
-import { getGrafanaLiveCentrifugeSrv } from 'app/features/live/live';
+import { Select, Alert, Label, stylesFactory } from '@grafana/ui';
 import { config } from 'app/core/config';
 
-type Props = StandardEditorProps<LiveChannelAddress, any, LivePanelOptions>;
+import { LivePanelOptions } from './types';
+
+type Props = StandardEditorProps<Partial<LiveChannelAddress>, any, LivePanelOptions>;
 
 const scopes: Array<SelectableValue<LiveChannelScope>> = [
   { label: 'Grafana', value: LiveChannelScope.Grafana, description: 'Core grafana live features' },
@@ -26,7 +24,6 @@ const scopes: Array<SelectableValue<LiveChannelScope>> = [
 interface State {
   namespaces: Array<SelectableValue<string>>;
   paths: Array<SelectableValue<string>>;
-  support?: LiveChannelSupport;
 }
 
 export class LiveChannelEditor extends PureComponent<Props, State> {
@@ -46,23 +43,9 @@ export class LiveChannelEditor extends PureComponent<Props, State> {
   }
 
   async updateSelectOptions() {
-    const { value } = this.props;
-    const { scope, namespace } = value;
-    const srv = getGrafanaLiveCentrifugeSrv();
-    const namespaces = await srv.scopes[scope].listNamespaces();
-    const support = namespace ? await srv.scopes[scope].getChannelSupport(namespace) : undefined;
-    const paths = support ? await support.getSupportedPaths() : undefined;
-
     this.setState({
-      namespaces,
-      support,
-      paths: paths
-        ? paths.map((p) => ({
-            label: p.path,
-            value: p.path,
-            description: p.description,
-          }))
-        : [],
+      namespaces: [],
+      paths: [],
     });
   }
 
@@ -70,49 +53,40 @@ export class LiveChannelEditor extends PureComponent<Props, State> {
     if (v.value) {
       this.props.onChange({
         scope: v.value,
-        namespace: (undefined as unknown) as string,
-        path: (undefined as unknown) as string,
-      } as LiveChannelAddress);
+        namespace: undefined,
+        path: undefined,
+      });
     }
   };
 
   onNamespaceChanged = (v: SelectableValue<string>) => {
-    const update = {
+    this.props.onChange({
       scope: this.props.value?.scope,
-      path: (undefined as unknown) as string,
-    } as LiveChannelAddress;
-
-    if (v.value) {
-      update.namespace = v.value;
-    }
-    this.props.onChange(update);
+      namespace: v.value,
+      path: undefined,
+    });
   };
 
   onPathChanged = (v: SelectableValue<string>) => {
     const { value, onChange } = this.props;
-    const update = {
+    onChange({
       scope: value.scope,
       namespace: value.namespace,
-    } as LiveChannelAddress;
-    if (v.value) {
-      update.path = v.value;
-    }
-    onChange(update);
+      path: v.value,
+    });
   };
 
   render() {
     const { namespaces, paths } = this.state;
     const { scope, namespace, path } = this.props.value;
-    const style = getStyles(config.theme);
+    const style = getStyles(config.theme2);
 
     return (
       <>
-        <FeatureInfoBox title="Grafana Live" featureState={FeatureState.alpha}>
-          <p>
-            This supports real-time event streams in grafana core. This feature is under heavy development. Expect the
-            intefaces and structures to change as this becomes more production ready.
-          </p>
-        </FeatureInfoBox>
+        <Alert title="Grafana Live" severity="info">
+          This supports real-time event streams in grafana core. This feature is under heavy development. Expect the
+          intefaces and structures to change as this becomes more production ready.
+        </Alert>
 
         <div>
           <div className={style.dropWrap}>
@@ -165,8 +139,8 @@ function findPathOption(paths: Array<SelectableValue<string>>, path?: string): S
   return undefined;
 }
 
-const getStyles = stylesFactory((theme: GrafanaTheme) => ({
+const getStyles = stylesFactory((theme: GrafanaTheme2) => ({
   dropWrap: css`
-    margin-bottom: ${theme.spacing.sm};
+    margin-bottom: ${theme.spacing(1)};
   `,
 }));

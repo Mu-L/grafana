@@ -1,23 +1,22 @@
 package conditions
 
 import (
+	gocontext "context"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/grafana/grafana/pkg/plugins"
-	"github.com/grafana/grafana/pkg/tsdb/prometheus"
-
-	gocontext "context"
-
 	"github.com/grafana/grafana-plugin-sdk-go/data"
-	"github.com/grafana/grafana/pkg/bus"
+
 	"github.com/grafana/grafana/pkg/components/null"
 	"github.com/grafana/grafana/pkg/components/simplejson"
-	"github.com/grafana/grafana/pkg/models"
 	"github.com/grafana/grafana/pkg/services/alerting"
-	"github.com/grafana/grafana/pkg/util/errutil"
+	"github.com/grafana/grafana/pkg/services/datasources"
+	ngalertmodels "github.com/grafana/grafana/pkg/services/ngalert/models"
+	"github.com/grafana/grafana/pkg/tsdb/legacydata"
+	"github.com/grafana/grafana/pkg/tsdb/legacydata/interval"
+	"github.com/grafana/grafana/pkg/tsdb/prometheus"
 )
 
 func init() {
@@ -46,8 +45,8 @@ type AlertQuery struct {
 }
 
 // Eval evaluates the `QueryCondition`.
-func (c *QueryCondition) Eval(context *alerting.EvalContext, requestHandler plugins.DataRequestHandler) (*alerting.ConditionResult, error) {
-	timeRange := plugins.NewDataTimeRange(c.Query.From, c.Query.To)
+func (c *QueryCondition) Eval(context *alerting.EvalContext, requestHandler legacydata.RequestHandler) (*alerting.ConditionResult, error) {
+	timeRange := legacydata.NewDataTimeRange(c.Query.From, c.Query.To)
 
 	seriesList, err := c.executeQuery(context, timeRange, requestHandler)
 	if err != nil {
@@ -56,7 +55,11 @@ func (c *QueryCondition) Eval(context *alerting.EvalContext, requestHandler plug
 
 	emptySeriesCount := 0
 	evalMatchCount := 0
+
+	// matches represents all the series that violate the alert condition
 	var matches []*alerting.EvalMatch
+	// allMatches capture all evaluation matches irregardless on whether the condition is met or not
+	allMatches := make([]*alerting.EvalMatch, 0, len(seriesList))
 
 	for _, series := range seriesList {
 		reducedValue := c.Reducer.Reduce(series)
@@ -72,14 +75,17 @@ func (c *QueryCondition) Eval(context *alerting.EvalContext, requestHandler plug
 			})
 		}
 
+		em := alerting.EvalMatch{
+			Metric: series.Name,
+			Value:  reducedValue,
+			Tags:   series.Tags,
+		}
+
+		allMatches = append(allMatches, &em)
+
 		if evalMatch {
 			evalMatchCount++
-
-			matches = append(matches, &alerting.EvalMatch{
-				Metric: series.Name,
-				Value:  reducedValue,
-				Tags:   series.Tags,
-			})
+			matches = append(matches, &em)
 		}
 	}
 
@@ -105,27 +111,56 @@ func (c *QueryCondition) Eval(context *alerting.EvalContext, requestHandler plug
 		NoDataFound: emptySeriesCount == len(seriesList),
 		Operator:    c.Operator,
 		EvalMatches: matches,
+		AllMatches:  allMatches,
 	}, nil
 }
 
-func (c *QueryCondition) executeQuery(context *alerting.EvalContext, timeRange plugins.DataTimeRange,
-	requestHandler plugins.DataRequestHandler) (plugins.DataTimeSeriesSlice, error) {
-	getDsInfo := &models.GetDataSourceQuery{
-		Id:    c.Query.DatasourceID,
-		OrgId: context.Rule.OrgID,
+func calculateInterval(timeRange legacydata.DataTimeRange, model *simplejson.Json, dsInfo *datasources.DataSource) (time.Duration, error) {
+	// if there is no min-interval specified in the datasource or in the dashboard-panel,
+	// the value of 1ms is used (this is how it is done in the dashboard-interval-calculation too,
+	// see https://github.com/grafana/grafana/blob/9a0040c0aeaae8357c650cec2ee644a571dddf3d/packages/grafana-data/src/datetime/rangeutil.ts#L264)
+	defaultMinInterval := time.Millisecond * 1
+
+	// interval.GetIntervalFrom has two problems (but they do not affect us here):
+	// - it returns the min-interval, so it should be called interval.GetMinIntervalFrom
+	// - it falls back to model.intervalMs. it should not, because that one is the real final
+	//   interval-value calculated by the browser. but, in this specific case (old-alert),
+	//   that value is not set, so the fallback never happens.
+	minInterval, err := interval.GetIntervalFrom(dsInfo, model, defaultMinInterval)
+
+	if err != nil {
+		return time.Duration(0), err
 	}
 
-	if err := bus.Dispatch(getDsInfo); err != nil {
+	calc := interval.NewCalculator()
+
+	interval := calc.Calculate(timeRange, minInterval)
+
+	return interval.Value, nil
+}
+
+func (c *QueryCondition) executeQuery(context *alerting.EvalContext, timeRange legacydata.DataTimeRange,
+	requestHandler legacydata.RequestHandler) (legacydata.DataTimeSeriesSlice, error) {
+	getDsInfo := &datasources.GetDataSourceQuery{
+		ID:    c.Query.DatasourceID,
+		OrgID: context.Rule.OrgID,
+	}
+
+	dataSource, err := context.GetDataSource(context.Ctx, getDsInfo)
+	if err != nil {
 		return nil, fmt.Errorf("could not find datasource: %w", err)
 	}
 
-	err := context.RequestValidator.Validate(getDsInfo.Result.Url, nil)
+	err = context.RequestValidator.Validate(dataSource.URL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("access denied: %w", err)
 	}
 
-	req := c.getRequestForAlertRule(getDsInfo.Result, timeRange, context.IsDebug)
-	result := make(plugins.DataTimeSeriesSlice, 0)
+	req, err := c.getRequestForAlertRule(dataSource, timeRange, context.IsDebug)
+	if err != nil {
+		return nil, fmt.Errorf("interval calculation failed: %w", err)
+	}
+	result := make(legacydata.DataTimeSeriesSlice, 0)
 
 	if context.IsDebug {
 		data := simplejson.New()
@@ -147,8 +182,8 @@ func (c *QueryCondition) executeQuery(context *alerting.EvalContext, timeRange p
 			queries = append(queries, &queryDto{
 				RefID: q.RefID,
 				Model: q.Model,
-				Datasource: simplejson.NewFromAny(map[string]interface{}{
-					"id":   q.DataSource.Id,
+				Datasource: simplejson.NewFromAny(map[string]any{
+					"id":   q.DataSource.ID,
 					"name": q.DataSource.Name,
 				}),
 				MaxDataPoints: q.MaxDataPoints,
@@ -164,7 +199,7 @@ func (c *QueryCondition) executeQuery(context *alerting.EvalContext, timeRange p
 		})
 	}
 
-	resp, err := requestHandler.HandleRequest(context.Ctx, getDsInfo.Result, req)
+	resp, err := requestHandler.HandleRequest(context.Ctx, dataSource, req)
 	if err != nil {
 		return nil, toCustomError(err)
 	}
@@ -180,14 +215,14 @@ func (c *QueryCondition) executeQuery(context *alerting.EvalContext, timeRange p
 		if useDataframes { // convert the dataframes to plugins.DataTimeSeries
 			frames, err := v.Dataframes.Decoded()
 			if err != nil {
-				return nil, errutil.Wrap("request handler failed to unmarshal arrow dataframes from bytes", err)
+				return nil, fmt.Errorf("%v: %w", "request handler failed to unmarshal arrow dataframes from bytes", err)
 			}
 
 			for _, frame := range frames {
 				ss, err := FrameToSeriesSlice(frame)
 				if err != nil {
-					return nil, errutil.Wrapf(err,
-						`request handler failed to convert dataframe "%v" to plugins.DataTimeSeriesSlice`, frame.Name)
+					return nil, fmt.Errorf(
+						`request handler failed to convert dataframe "%v" to plugins.DataTimeSeriesSlice: %w`, frame.Name, err)
 				}
 				result = append(result, ss...)
 			}
@@ -195,7 +230,7 @@ func (c *QueryCondition) executeQuery(context *alerting.EvalContext, timeRange p
 			result = append(result, v.Series...)
 		}
 
-		queryResultData := map[string]interface{}{}
+		queryResultData := map[string]any{}
 
 		if context.IsTestRun {
 			queryResultData["series"] = result
@@ -219,26 +254,35 @@ func (c *QueryCondition) executeQuery(context *alerting.EvalContext, timeRange p
 	return result, nil
 }
 
-func (c *QueryCondition) getRequestForAlertRule(datasource *models.DataSource, timeRange plugins.DataTimeRange,
-	debug bool) plugins.DataQuery {
+func (c *QueryCondition) getRequestForAlertRule(datasource *datasources.DataSource, timeRange legacydata.DataTimeRange,
+	debug bool) (legacydata.DataQuery, error) {
 	queryModel := c.Query.Model
-	req := plugins.DataQuery{
+
+	calculatedInterval, err := calculateInterval(timeRange, queryModel, datasource)
+	if err != nil {
+		return legacydata.DataQuery{}, err
+	}
+
+	req := legacydata.DataQuery{
 		TimeRange: &timeRange,
-		Queries: []plugins.DataSubQuery{
+		Queries: []legacydata.DataSubQuery{
 			{
-				RefID:      "A",
-				Model:      queryModel,
-				DataSource: datasource,
-				QueryType:  queryModel.Get("queryType").MustString(""),
+				RefID:         "A",
+				Model:         queryModel,
+				DataSource:    datasource,
+				QueryType:     queryModel.Get("queryType").MustString(""),
+				MaxDataPoints: interval.DefaultRes,
+				IntervalMS:    calculatedInterval.Milliseconds(),
 			},
 		},
 		Headers: map[string]string{
-			"FromAlert": "true",
+			ngalertmodels.FromAlertHeaderName: "true",
+			ngalertmodels.CacheSkipHeaderName: "true",
 		},
 		Debug: debug,
 	}
 
-	return req
+	return req, nil
 }
 
 func newQueryCondition(model *simplejson.Json, index int) (*QueryCondition, error) {
@@ -303,22 +347,21 @@ func validateToValue(to string) error {
 
 // FrameToSeriesSlice converts a frame that is a valid time series as per data.TimeSeriesSchema()
 // to a DataTimeSeriesSlice.
-func FrameToSeriesSlice(frame *data.Frame) (plugins.DataTimeSeriesSlice, error) {
+func FrameToSeriesSlice(frame *data.Frame) (legacydata.DataTimeSeriesSlice, error) {
 	tsSchema := frame.TimeSeriesSchema()
 	if tsSchema.Type == data.TimeSeriesTypeNot {
 		// If no fields, or only a time field, create an empty plugins.DataTimeSeriesSlice with a single
 		// time series in order to trigger "no data" in alerting.
-		if len(frame.Fields) == 0 || (len(frame.Fields) == 1 && frame.Fields[0].Type().Time()) {
-			return plugins.DataTimeSeriesSlice{{
+		if frame.Rows() == 0 || (len(frame.Fields) == 1 && frame.Fields[0].Type().Time()) {
+			return legacydata.DataTimeSeriesSlice{{
 				Name:   frame.Name,
-				Points: make(plugins.DataTimeSeriesPoints, 0),
+				Points: make(legacydata.DataTimeSeriesPoints, 0),
 			}}, nil
 		}
 		return nil, fmt.Errorf("input frame is not recognized as a time series")
 	}
-
 	seriesCount := len(tsSchema.ValueIndices)
-	seriesSlice := make(plugins.DataTimeSeriesSlice, 0, seriesCount)
+	seriesSlice := make(legacydata.DataTimeSeriesSlice, 0, seriesCount)
 	timeField := frame.Fields[tsSchema.TimeIndex]
 	timeNullFloatSlice := make([]null.Float, timeField.Len())
 
@@ -332,8 +375,8 @@ func FrameToSeriesSlice(frame *data.Frame) (plugins.DataTimeSeriesSlice, error) 
 
 	for _, fieldIdx := range tsSchema.ValueIndices { // create a TimeSeries for each value Field
 		field := frame.Fields[fieldIdx]
-		ts := plugins.DataTimeSeries{
-			Points: make(plugins.DataTimeSeriesPoints, field.Len()),
+		ts := legacydata.DataTimeSeries{
+			Points: make(legacydata.DataTimeSeriesPoints, field.Len()),
 		}
 
 		if len(field.Labels) > 0 {
@@ -356,10 +399,10 @@ func FrameToSeriesSlice(frame *data.Frame) (plugins.DataTimeSeriesSlice, error) 
 		for rowIdx := 0; rowIdx < field.Len(); rowIdx++ { // for each value in the field, make a TimePoint
 			val, err := field.FloatAt(rowIdx)
 			if err != nil {
-				return nil, errutil.Wrapf(err,
-					"failed to convert frame to DataTimeSeriesSlice, can not convert value %v to float", field.At(rowIdx))
+				return nil, fmt.Errorf(
+					"failed to convert frame to DataTimeSeriesSlice, can not convert value %v to float: %w", field.At(rowIdx), err)
 			}
-			ts.Points[rowIdx] = plugins.DataTimePoint{
+			ts.Points[rowIdx] = legacydata.DataTimePoint{
 				null.FloatFrom(val),
 				timeNullFloatSlice[rowIdx],
 			}

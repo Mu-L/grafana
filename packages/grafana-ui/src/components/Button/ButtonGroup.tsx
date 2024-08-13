@@ -1,14 +1,16 @@
+import { css, cx } from '@emotion/css';
 import React, { forwardRef, HTMLAttributes } from 'react';
-import { css, cx } from 'emotion';
-import { GrafanaTheme } from '@grafana/data';
-import { useStyles } from '../../themes';
+
+import { GrafanaTheme2 } from '@grafana/data';
+
+import { useStyles2 } from '../../themes';
 
 export interface Props extends HTMLAttributes<HTMLDivElement> {
   className?: string;
 }
 
 export const ButtonGroup = forwardRef<HTMLDivElement, Props>(({ className, children, ...rest }, ref) => {
-  const styles = useStyles(getStyles);
+  const styles = useStyles2(getStyles);
 
   return (
     <div ref={ref} className={cx('button-group', styles.wrapper, className)} {...rest}>
@@ -19,26 +21,19 @@ export const ButtonGroup = forwardRef<HTMLDivElement, Props>(({ className, child
 
 ButtonGroup.displayName = 'ButtonGroup';
 
-const getStyles = (theme: GrafanaTheme) => ({
-  wrapper: css`
-    display: flex;
+const getStyles = (theme: GrafanaTheme2) => ({
+  wrapper: css({
+    display: 'flex',
 
-    > button {
-      border-radius: 0;
-      border-right-width: 0;
+    '> .button-group:not(:first-child) > button, > button:not(:first-child)': {
+      borderTopLeftRadius: 0,
+      borderBottomLeftRadius: 0,
+    },
 
-      &.toolbar-button {
-        margin-left: 0;
-      }
-
-      &:last-of-type {
-        border-radius: 0 ${theme.border.radius.sm} ${theme.border.radius.sm} 0;
-        border-right-width: 1px;
-      }
-
-      &:first-child {
-        border-radius: ${theme.border.radius.sm} 0 0 ${theme.border.radius.sm};
-      }
-    }
-  `,
+    '> .button-group:not(:last-child) > button, > button:not(:last-child)': {
+      borderTopRightRadius: 0,
+      borderBottomRightRadius: 0,
+      borderRightWidth: 0,
+    },
+  }),
 });

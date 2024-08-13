@@ -1,43 +1,40 @@
-import React, { useState, useEffect } from 'react';
-import { Project, VisualMetricQueryEditor, AliasBy } from '.';
-import { MetricQuery, MetricDescriptor, EditorMode } from '../types';
-import { getAlignmentPickerData } from '../functions';
+import React, { useCallback, useEffect } from 'react';
+
+import { SelectableValue, TimeRange } from '@grafana/data';
+import { EditorRows, Stack } from '@grafana/experimental';
+
 import CloudMonitoringDatasource from '../datasource';
-import { SelectableValue } from '@grafana/data';
+import { AlignmentTypes, CloudMonitoringQuery, QueryType, TimeSeriesList, TimeSeriesQuery } from '../types/query';
+import { CustomMetaData } from '../types/types';
+
+import { AliasBy } from './AliasBy';
+import { GraphPeriod } from './GraphPeriod';
 import { MQLQueryEditor } from './MQLQueryEditor';
+import { Project } from './Project';
+import { VisualMetricQueryEditor } from './VisualMetricQueryEditor';
 
 export interface Props {
   refId: string;
-  usedAlignmentPeriod?: number;
+  customMetaData: CustomMetaData;
   variableOptionGroup: SelectableValue<string>;
-  onChange: (query: MetricQuery) => void;
+  onChange: (query: CloudMonitoringQuery) => void;
   onRunQuery: () => void;
-  query: MetricQuery;
+  query: CloudMonitoringQuery;
   datasource: CloudMonitoringDatasource;
+  range: TimeRange;
 }
 
-interface State {
-  labels: any;
-  [key: string]: any;
-}
-
-export const defaultState: State = {
-  labels: {},
-};
-
-export const defaultQuery: (dataSource: CloudMonitoringDatasource) => MetricQuery = (dataSource) => ({
-  editorMode: EditorMode.Visual,
+export const defaultTimeSeriesList: (dataSource: CloudMonitoringDatasource) => TimeSeriesList = (dataSource) => ({
   projectName: dataSource.getDefaultProject(),
-  metricType: '',
-  metricKind: '',
-  valueType: '',
-  unit: '',
-  crossSeriesReducer: 'REDUCE_MEAN',
+  crossSeriesReducer: 'REDUCE_NONE',
   alignmentPeriod: 'cloud-monitoring-auto',
-  perSeriesAligner: 'ALIGN_MEAN',
+  perSeriesAligner: AlignmentTypes.ALIGN_MEAN,
   groupBys: [],
   filters: [],
-  aliasBy: '',
+});
+
+export const defaultTimeSeriesQuery: (dataSource: CloudMonitoringDatasource) => TimeSeriesQuery = (dataSource) => ({
+  projectName: dataSource.getDefaultProject(),
   query: '',
 });
 
@@ -47,74 +44,96 @@ function Editor({
   datasource,
   onChange: onQueryChange,
   onRunQuery,
-  usedAlignmentPeriod,
+  customMetaData,
   variableOptionGroup,
+  range,
 }: React.PropsWithChildren<Props>) {
-  const [state, setState] = useState<State>(defaultState);
+  const onChangeTimeSeriesList = useCallback(
+    (timeSeriesList: TimeSeriesList) => {
+      onQueryChange({ ...query, timeSeriesList });
+      onRunQuery();
+    },
+    [onQueryChange, onRunQuery, query]
+  );
+
+  const onChangeTimeSeriesQuery = useCallback(
+    (timeSeriesQuery: TimeSeriesQuery) => {
+      onQueryChange({ ...query, timeSeriesQuery });
+      onRunQuery();
+    },
+    [onQueryChange, onRunQuery, query]
+  );
 
   useEffect(() => {
-    if (query && query.projectName && query.metricType) {
-      datasource
-        .getLabels(query.metricType, refId, query.projectName, query.groupBys)
-        .then((labels) => setState({ ...state, labels }));
+    if (query.queryType === QueryType.TIME_SERIES_LIST && !query.timeSeriesList) {
+      onQueryChange({
+        refId: query.refId,
+        datasource: query.datasource,
+        queryType: QueryType.TIME_SERIES_LIST,
+        timeSeriesList: defaultTimeSeriesList(datasource),
+        aliasBy: query.aliasBy,
+      });
     }
-  }, [query.projectName, query.groupBys, query.metricType]);
-
-  const onChange = (metricQuery: MetricQuery) => {
-    onQueryChange({ ...query, ...metricQuery });
-    onRunQuery();
-  };
-
-  const onMetricTypeChange = async ({ valueType, metricKind, type, unit }: MetricDescriptor) => {
-    const { perSeriesAligner, alignOptions } = getAlignmentPickerData(
-      { valueType, metricKind, perSeriesAligner: state.perSeriesAligner },
-      datasource.templateSrv
-    );
-    setState({
-      ...state,
-      alignOptions,
-    });
-    onChange({ ...query, perSeriesAligner, metricType: type, unit, valueType, metricKind });
-  };
+    if (query.queryType === QueryType.TIME_SERIES_QUERY && !query.timeSeriesQuery) {
+      onQueryChange({
+        refId: query.refId,
+        datasource: query.datasource,
+        queryType: QueryType.TIME_SERIES_QUERY,
+        timeSeriesQuery: defaultTimeSeriesQuery(datasource),
+        aliasBy: query.aliasBy,
+      });
+    }
+  }, [onQueryChange, query, datasource]);
 
   return (
-    <>
-      <Project
-        templateVariableOptions={variableOptionGroup.options}
-        projectName={query.projectName}
-        datasource={datasource}
-        onChange={(projectName) => {
-          onChange({ ...query, projectName });
-        }}
-      />
+    <EditorRows>
+      {(query.queryType === QueryType.ANNOTATION || query.queryType === QueryType.TIME_SERIES_LIST) &&
+        query.timeSeriesList && (
+          <VisualMetricQueryEditor
+            refId={refId}
+            variableOptionGroup={variableOptionGroup}
+            customMetaData={customMetaData}
+            onChange={onChangeTimeSeriesList}
+            datasource={datasource}
+            query={query.timeSeriesList}
+            aliasBy={query.aliasBy}
+            onChangeAliasBy={(aliasBy: string) => onQueryChange({ ...query, aliasBy })}
+            range={range}
+          />
+        )}
 
-      {query.editorMode === EditorMode.Visual && (
-        <VisualMetricQueryEditor
-          labels={state.labels}
-          variableOptionGroup={variableOptionGroup}
-          usedAlignmentPeriod={usedAlignmentPeriod}
-          onMetricTypeChange={onMetricTypeChange}
-          onChange={onChange}
-          datasource={datasource}
-          query={query}
-        />
+      {query.queryType === QueryType.TIME_SERIES_QUERY && query.timeSeriesQuery && (
+        <>
+          <Stack gap={1} direction="row">
+            <Project
+              refId={refId}
+              datasource={datasource}
+              onChange={(projectName) =>
+                onChangeTimeSeriesQuery({ ...query.timeSeriesQuery!, projectName: projectName })
+              }
+              templateVariableOptions={variableOptionGroup.options}
+              projectName={query.timeSeriesQuery.projectName!}
+            />
+            <AliasBy
+              refId={refId}
+              value={query.aliasBy}
+              onChange={(aliasBy: string) => onQueryChange({ ...query, aliasBy })}
+            />
+          </Stack>
+          <MQLQueryEditor
+            onChange={(q: string) => onChangeTimeSeriesQuery({ ...query.timeSeriesQuery!, query: q })}
+            onRunQuery={onRunQuery}
+            query={query.timeSeriesQuery.query}
+          ></MQLQueryEditor>
+          <GraphPeriod
+            onChange={(graphPeriod: string) => onChangeTimeSeriesQuery({ ...query.timeSeriesQuery!, graphPeriod })}
+            graphPeriod={query.timeSeriesQuery.graphPeriod}
+            refId={refId}
+            variableOptionGroup={variableOptionGroup}
+          />
+        </>
       )}
-
-      {query.editorMode === EditorMode.MQL && (
-        <MQLQueryEditor
-          onChange={(q: string) => onQueryChange({ ...query, query: q })}
-          onRunQuery={onRunQuery}
-          query={query.query}
-        ></MQLQueryEditor>
-      )}
-
-      <AliasBy
-        value={query.aliasBy}
-        onChange={(aliasBy) => {
-          onChange({ ...query, aliasBy });
-        }}
-      />
-    </>
+    </EditorRows>
   );
 }
 

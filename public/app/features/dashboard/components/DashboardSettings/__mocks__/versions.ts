@@ -2,16 +2,18 @@ export const versions = [
   {
     id: 249,
     dashboardId: 74,
+    dashboardUID: '_U4zObQMz',
     parentVersion: 10,
     restoredFrom: 0,
     version: 11,
     created: '2021-01-15T14:44:44+01:00',
     createdBy: 'admin',
-    message: 'Another day another change...',
+    message: 'testing changes...',
   },
   {
     id: 247,
     dashboardId: 74,
+    dashboardUID: '_U4zObQMz',
     parentVersion: 9,
     restoredFrom: 0,
     version: 10,
@@ -22,6 +24,7 @@ export const versions = [
   {
     id: 246,
     dashboardId: 74,
+    dashboardUID: '_U4zObQMz',
     parentVersion: 8,
     restoredFrom: 0,
     version: 9,
@@ -32,6 +35,7 @@ export const versions = [
   {
     id: 245,
     dashboardId: 74,
+    dashboardUID: '_U4zObQMz',
     parentVersion: 7,
     restoredFrom: 0,
     version: 8,
@@ -42,6 +46,7 @@ export const versions = [
   {
     id: 239,
     dashboardId: 74,
+    dashboardUID: '_U4zObQMz',
     parentVersion: 6,
     restoredFrom: 0,
     version: 7,
@@ -52,6 +57,7 @@ export const versions = [
   {
     id: 237,
     dashboardId: 74,
+    dashboardUID: '_U4zObQMz',
     parentVersion: 5,
     restoredFrom: 0,
     version: 6,
@@ -62,6 +68,7 @@ export const versions = [
   {
     id: 236,
     dashboardId: 74,
+    dashboardUID: '_U4zObQMz',
     parentVersion: 4,
     restoredFrom: 0,
     version: 5,
@@ -72,6 +79,7 @@ export const versions = [
   {
     id: 218,
     dashboardId: 74,
+    dashboardUID: '_U4zObQMz',
     parentVersion: 3,
     restoredFrom: 0,
     version: 4,
@@ -82,6 +90,7 @@ export const versions = [
   {
     id: 217,
     dashboardId: 74,
+    dashboardUID: '_U4zObQMz',
     parentVersion: 2,
     restoredFrom: 0,
     version: 3,
@@ -92,6 +101,7 @@ export const versions = [
   {
     id: 216,
     dashboardId: 74,
+    dashboardUID: '_U4zObQMz',
     parentVersion: 1,
     restoredFrom: 0,
     version: 2,
@@ -102,6 +112,7 @@ export const versions = [
   {
     id: 215,
     dashboardId: 74,
+    dashboardUID: '_U4zObQMz',
     parentVersion: 1,
     restoredFrom: 0,
     version: 1,
@@ -110,3 +121,96 @@ export const versions = [
     message: '',
   },
 ];
+
+export const diffs = {
+  lhs: {
+    data: {
+      annotations: {
+        list: [
+          {
+            builtIn: 1,
+            datasource: '-- Grafana --',
+            enable: true,
+            hide: true,
+            iconColor: 'rgba(0, 211, 255, 1)',
+            name: 'Annotations & Alerts',
+            type: 'dashboard',
+          },
+        ],
+      },
+      editable: true,
+      gnetId: null,
+      graphTooltip: 0,
+      id: 141,
+      links: [],
+      panels: [
+        {
+          type: 'graph',
+          id: 4,
+        },
+      ],
+      schemaVersion: 27,
+      style: 'dark',
+      tags: ['the tag'],
+      templating: {
+        list: [],
+      },
+      time: {
+        from: 'now-6h',
+        to: 'now',
+      },
+      timepicker: {},
+      timezone: '',
+      title: 'test dashboard',
+      uid: '_U4zObQMz',
+      version: 2,
+    },
+  },
+  rhs: {
+    data: {
+      annotations: {
+        list: [
+          {
+            builtIn: 1,
+            datasource: '-- Grafana --',
+            enable: true,
+            hide: true,
+            iconColor: 'rgba(0, 211, 255, 1)',
+            name: 'Annotations & Alerts',
+            type: 'dashboard',
+          },
+        ],
+      },
+      description: 'The dashboard description',
+      editable: true,
+      gnetId: null,
+      graphTooltip: 0,
+      id: 141,
+      links: [],
+      panels: [
+        {
+          type: 'graph',
+          title: 'panel title',
+          id: 6,
+        },
+      ],
+      schemaVersion: 27,
+      style: 'dark',
+      tags: [],
+      templating: {
+        list: [],
+      },
+      time: {
+        from: 'now-6h',
+        to: 'now',
+      },
+      timepicker: {
+        refresh_intervals: ['5s'],
+      },
+      timezone: '',
+      title: 'test dashboard',
+      uid: '_U4zObQMz',
+      version: 11,
+    },
+  },
+};

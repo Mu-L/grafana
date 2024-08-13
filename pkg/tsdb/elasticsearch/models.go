@@ -1,18 +1,21 @@
 package elasticsearch
 
 import (
+	"time"
+
 	"github.com/grafana/grafana/pkg/components/simplejson"
 )
 
 // Query represents the time series query model of the datasource
 type Query struct {
-	TimeField  string       `json:"timeField"`
-	RawQuery   string       `json:"query"`
-	BucketAggs []*BucketAgg `json:"bucketAggs"`
-	Metrics    []*MetricAgg `json:"metrics"`
-	Alias      string       `json:"alias"`
-	Interval   string
-	RefID      string
+	RawQuery      string       `json:"query"`
+	BucketAggs    []*BucketAgg `json:"bucketAggs"`
+	Metrics       []*MetricAgg `json:"metrics"`
+	Alias         string       `json:"alias"`
+	Interval      time.Duration
+	IntervalMs    int64
+	RefID         string
+	MaxDataPoints int64
 }
 
 // BucketAgg represents a bucket aggregation of the time series query model of the datasource
@@ -20,7 +23,7 @@ type BucketAgg struct {
 	Field    string           `json:"field"`
 	ID       string           `json:"id"`
 	Settings *simplejson.Json `json:"settings"`
-	Type     string           `jsons:"type"`
+	Type     string           `json:"type"`
 }
 
 // MetricAgg represents a metric aggregation of the time series query model of the datasource
@@ -43,6 +46,7 @@ var metricAggType = map[string]string{
 	"min":            "Min",
 	"extended_stats": "Extended Stats",
 	"percentiles":    "Percentiles",
+	"top_metrics":    "Top Metrics",
 	"cardinality":    "Unique Count",
 	"moving_avg":     "Moving Average",
 	"moving_fn":      "Moving Function",
@@ -51,6 +55,9 @@ var metricAggType = map[string]string{
 	"serial_diff":    "Serial Difference",
 	"bucket_script":  "Bucket Script",
 	"raw_document":   "Raw Document",
+	"raw_data":       "Raw Data",
+	"rate":           "Rate",
+	"logs":           "Logs",
 }
 
 var extendedStats = map[string]string{
@@ -73,12 +80,29 @@ var pipelineAggType = map[string]string{
 	"bucket_script":  "bucket_script",
 }
 
+var scriptableAggType = map[string]string{
+	"avg":            "avg",
+	"sum":            "sum",
+	"max":            "max",
+	"min":            "min",
+	"extended_stats": "extended_stats",
+	"percentiles":    "percentiles",
+	"bucket_script":  "bucket_script",
+}
+
 var pipelineAggWithMultipleBucketPathsType = map[string]string{
 	"bucket_script": "bucket_script",
 }
 
 func isPipelineAgg(metricType string) bool {
 	if _, ok := pipelineAggType[metricType]; ok {
+		return true
+	}
+	return false
+}
+
+func isMetricAggregationWithInlineScriptSupport(metricType string) bool {
+	if _, ok := scriptableAggType[metricType]; ok {
 		return true
 	}
 	return false

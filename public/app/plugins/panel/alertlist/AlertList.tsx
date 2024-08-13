@@ -1,13 +1,15 @@
+import { css, cx } from '@emotion/css';
+import { sortBy } from 'lodash';
 import React, { useState } from 'react';
-import sortBy from 'lodash/sortBy';
-import { PanelProps, GrafanaTheme, dateMath, dateTime } from '@grafana/data';
-import { Card, CustomScrollbar, Icon, stylesFactory, useStyles } from '@grafana/ui';
-import { css, cx } from 'emotion';
-import { getBackendSrv, getTemplateSrv } from '@grafana/runtime';
 import { useAsync } from 'react-use';
+
+import { dateMath, dateTime, GrafanaTheme2, PanelProps } from '@grafana/data';
+import { getBackendSrv } from '@grafana/runtime';
+import { Card, CustomScrollbar, Icon, useStyles2 } from '@grafana/ui';
 import alertDef from 'app/features/alerting/state/alertDef';
-import { AlertRuleDTO, AnnotationItemDTO } from 'app/types';
 import { getDashboardSrv } from 'app/features/dashboard/services/DashboardSrv';
+import { AlertRuleDTO, AnnotationItemDTO } from 'app/types';
+
 import { AlertListOptions, ShowOption, SortOrder } from './types';
 
 export function AlertList(props: PanelProps<AlertListOptions>) {
@@ -21,10 +23,9 @@ export function AlertList(props: PanelProps<AlertListOptions>) {
     const params: any = {
       state: getStateFilter(props.options.stateFilter),
     };
-    const panel = getDashboardSrv().getCurrent().getPanelById(props.id)!;
 
     if (props.options.alertName) {
-      params.query = getTemplateSrv().replace(props.options.alertName, panel.scopedVars);
+      params.query = props.replaceVariables(props.options.alertName);
     }
 
     if (props.options.folderId >= 0) {
@@ -36,7 +37,7 @@ export function AlertList(props: PanelProps<AlertListOptions>) {
     }
 
     if (props.options.dashboardAlerts) {
-      params.dashboardId = getDashboardSrv().getCurrent().id;
+      params.dashboardId = getDashboardSrv().getCurrent()?.id;
     }
 
     if (props.options.tags) {
@@ -78,6 +79,7 @@ export function AlertList(props: PanelProps<AlertListOptions>) {
     props.options.folderId,
     props.options.alertName,
     props.options.sortOrder,
+    props.timeRange,
   ]);
 
   const recentStateChanges = useAsync(async () => {
@@ -93,11 +95,11 @@ export function AlertList(props: PanelProps<AlertListOptions>) {
     const currentDashboard = getDashboardSrv().getCurrent();
 
     if (props.options.dashboardAlerts) {
-      params.dashboardId = currentDashboard.id;
+      params.dashboardId = currentDashboard?.id;
     }
 
-    params.from = dateMath.parse(currentDashboard.time.from)!.unix() * 1000;
-    params.to = dateMath.parse(currentDashboard.time.to)!.unix() * 1000;
+    params.from = dateMath.parse(currentDashboard?.time.from)!.unix() * 1000;
+    params.to = dateMath.parse(currentDashboard?.time.to)!.unix() * 1000;
 
     const data: AnnotationItemDTO[] = await getBackendSrv().get(
       '/api/annotations',
@@ -109,7 +111,7 @@ export function AlertList(props: PanelProps<AlertListOptions>) {
       data.map((al) => {
         return {
           ...al,
-          time: currentDashboard.formatDate(al.time, 'MMM D, YYYY HH:mm:ss'),
+          time: currentDashboard?.formatDate(al.time, 'MMM D, YYYY HH:mm:ss'),
           stateModel: alertDef.getStateDisplayModel(al.newState),
           info: alertDef.getAlertAnnotationInfo(al),
         };
@@ -128,9 +130,10 @@ export function AlertList(props: PanelProps<AlertListOptions>) {
     props.options.stateFilter.paused,
     props.options.stateFilter.pending,
     props.options.dashboardAlerts,
+    props.options.sortOrder,
   ]);
 
-  const styles = useStyles(getStyles);
+  const styles = useStyles2(getStyles);
 
   return (
     <CustomScrollbar autoHeightMin="100%" autoHeightMax="100%">
@@ -143,11 +146,8 @@ export function AlertList(props: PanelProps<AlertListOptions>) {
                 currentAlertState.value &&
                 currentAlertState.value!.map((alert) => (
                   <li className={styles.alertRuleItem} key={`alert-${alert.id}`}>
-                    <Card
-                      heading={alert.name}
-                      href={`${alert.url}?viewPanel=${alert.panelId}`}
-                      className={styles.cardContainer}
-                    >
+                    <Card href={`${alert.url}?viewPanel=${alert.panelId}`} className={styles.cardContainer}>
+                      <Card.Heading>{alert.name}</Card.Heading>
                       <Card.Figure className={cx(styles.alertRuleItemIcon, alert.stateModel.stateClass)}>
                         <Icon name={alert.stateModel.iconClass} size="xl" className={styles.alertIcon} />
                       </Card.Figure>
@@ -164,7 +164,8 @@ export function AlertList(props: PanelProps<AlertListOptions>) {
                 recentStateChanges.value &&
                 recentStateChanges.value.map((alert) => (
                   <li className={styles.alertRuleItem} key={`alert-${alert.id}`}>
-                    <Card heading={alert.alertName} className={styles.cardContainer}>
+                    <Card className={styles.cardContainer}>
+                      <Card.Heading>{alert.alertName}</Card.Heading>
                       <Card.Figure className={cx(styles.alertRuleItemIcon, alert.stateModel.stateClass)}>
                         <Icon name={alert.stateModel.iconClass} size="xl" />
                       </Card.Figure>
@@ -209,10 +210,10 @@ function getStateFilter(stateFilter: Record<string, boolean>) {
     .map(([key, _]) => key);
 }
 
-const getStyles = stylesFactory((theme: GrafanaTheme) => ({
+const getStyles = (theme: GrafanaTheme2) => ({
   cardContainer: css`
-    padding: ${theme.spacing.xs} 0 ${theme.spacing.xxs} 0;
-    line-height: ${theme.typography.lineHeight.md};
+    padding: ${theme.spacing(0.5)} 0 ${theme.spacing(0.25)} 0;
+    line-height: ${theme.typography.body.lineHeight};
     margin-bottom: 0px;
   `,
   container: css`
@@ -230,26 +231,26 @@ const getStyles = stylesFactory((theme: GrafanaTheme) => ({
     align-items: center;
     width: 100%;
     height: 100%;
-    background: ${theme.colors.bg2};
-    padding: ${theme.spacing.xs} ${theme.spacing.sm};
-    border-radius: ${theme.border.radius.md};
-    margin-bottom: ${theme.spacing.xs};
+    background: ${theme.colors.background.secondary};
+    padding: ${theme.spacing(0.5)} ${theme.spacing(1)};
+    border-radius: ${theme.shape.radius.default};
+    margin-bottom: ${theme.spacing(0.5)};
   `,
   alertRuleItemIcon: css`
     display: flex;
     justify-content: center;
     align-items: center;
-    width: ${theme.spacing.xl};
-    padding: 0 ${theme.spacing.xs} 0 ${theme.spacing.xxs};
+    width: ${theme.spacing(4)};
+    padding: 0 ${theme.spacing(0.5)} 0 ${theme.spacing(0.25)};
     margin-right: 0px;
   `,
   alertRuleItemText: css`
-    font-weight: ${theme.typography.weight.bold};
+    font-weight: ${theme.typography.fontWeightBold};
     font-size: ${theme.typography.size.sm};
     margin: 0;
   `,
   alertRuleItemTime: css`
-    color: ${theme.colors.textWeak};
+    color: ${theme.colors.text.secondary};
     font-weight: normal;
     white-space: nowrap;
   `,
@@ -267,6 +268,6 @@ const getStyles = stylesFactory((theme: GrafanaTheme) => ({
     height: 100%;
   `,
   alertIcon: css`
-    margin-right: ${theme.spacing.xs};
+    margin-right: ${theme.spacing(0.5)};
   `,
-}));
+});

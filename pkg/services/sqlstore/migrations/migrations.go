@@ -1,19 +1,39 @@
 package migrations
 
-import . "github.com/grafana/grafana/pkg/services/sqlstore/migrator"
+import (
+	dashboardFolderMigrations "github.com/grafana/grafana/pkg/services/dashboards/database/migrations"
+	"github.com/grafana/grafana/pkg/services/featuremgmt"
+	"github.com/grafana/grafana/pkg/services/sqlstore/migrations/accesscontrol"
+	"github.com/grafana/grafana/pkg/services/sqlstore/migrations/anonservice"
+	"github.com/grafana/grafana/pkg/services/sqlstore/migrations/oauthserver"
+	"github.com/grafana/grafana/pkg/services/sqlstore/migrations/signingkeys"
+	"github.com/grafana/grafana/pkg/services/sqlstore/migrations/ssosettings"
+	"github.com/grafana/grafana/pkg/services/sqlstore/migrations/ualert"
+	. "github.com/grafana/grafana/pkg/services/sqlstore/migrator"
+)
 
 // --- Migration Guide line ---
-// 1. Never change a migration that is committed and pushed to master
+// 1. Never change a migration that is committed and pushed to main
 // 2. Always add new migrations (to change or undo previous migrations)
 // 3. Some migrations are not yet written (rename column, table, drop table, index etc)
+// 4. Putting migrations behind feature flags is no longer recommended as broken
+//    migrations may not be caught by integration tests unless feature flags are
+//    specifically added
 
-func AddMigrations(mg *Migrator) {
-	addMigrationLogMigrations(mg)
+type OSSMigrations struct {
+}
+
+func ProvideOSSMigrations() *OSSMigrations {
+	return &OSSMigrations{}
+}
+
+func (*OSSMigrations) AddMigration(mg *Migrator) {
+	mg.AddCreateMigration()
 	addUserMigrations(mg)
 	addTempUserMigrations(mg)
 	addStarMigrations(mg)
 	addOrgMigrations(mg)
-	addDashboardMigration(mg)
+	addDashboardMigration(mg) // Do NOT add more migrations to this function.
 	addDataSourceMigration(mg)
 	addApiKeyMigrations(mg)
 	addDashboardSnapshotMigrations(mg)
@@ -27,7 +47,7 @@ func AddMigrations(mg *Migrator) {
 	addTestDataMigrations(mg)
 	addDashboardVersionMigration(mg)
 	addTeamMigrations(mg)
-	addDashboardAclMigrations(mg)
+	addDashboardACLMigrations(mg) // Do NOT add more migrations to this function.
 	addTagMigration(mg)
 	addLoginAttemptMigrations(mg)
 	addUserAuthMigrations(mg)
@@ -35,22 +55,64 @@ func AddMigrations(mg *Migrator) {
 	addUserAuthTokenMigrations(mg)
 	addCacheMigration(mg)
 	addShortURLMigrations(mg)
-}
+	ualert.AddTablesMigrations(mg)
+	addLibraryElementsMigrations(mg)
 
-func addMigrationLogMigrations(mg *Migrator) {
-	migrationLogV1 := Table{
-		Name: "migration_log",
-		Columns: []*Column{
-			{Name: "id", Type: DB_BigInt, IsPrimaryKey: true, IsAutoIncrement: true},
-			{Name: "migration_id", Type: DB_NVarchar, Length: 255},
-			{Name: "sql", Type: DB_Text},
-			{Name: "success", Type: DB_Bool},
-			{Name: "error", Type: DB_Text},
-			{Name: "timestamp", Type: DB_DateTime},
-		},
+	ualert.FixEarlyMigration(mg)
+	addSecretsMigration(mg)
+	addKVStoreMigrations(mg)
+	ualert.AddDashboardUIDPanelIDMigration(mg)
+	accesscontrol.AddMigration(mg)
+	addQueryHistoryMigrations(mg)
+
+	accesscontrol.AddDisabledMigrator(mg)
+	accesscontrol.AddTeamMembershipMigrations(mg)
+	accesscontrol.AddDashboardPermissionsMigrator(mg)
+	accesscontrol.AddAlertingPermissionsMigrator(mg)
+
+	addQueryHistoryStarMigrations(mg)
+
+	addCorrelationsMigrations(mg)
+
+	addEntityEventsTableMigration(mg)
+
+	addPublicDashboardMigration(mg)
+	addDbFileStorageMigration(mg)
+
+	accesscontrol.AddManagedPermissionsMigration(mg, accesscontrol.ManagedPermissionsMigrationID)
+	accesscontrol.AddManagedFolderAlertActionsMigration(mg)
+	accesscontrol.AddActionNameMigrator(mg)
+	addPlaylistUIDMigration(mg)
+
+	ualert.UpdateRuleGroupIndexMigration(mg)
+	accesscontrol.AddManagedFolderAlertActionsRepeatMigration(mg)
+	accesscontrol.AddAdminOnlyMigration(mg)
+	accesscontrol.AddSeedAssignmentMigrations(mg)
+	accesscontrol.AddManagedFolderAlertActionsRepeatFixedMigration(mg)
+	accesscontrol.AddManagedFolderLibraryPanelActionsMigration(mg)
+
+	AddExternalAlertmanagerToDatasourceMigration(mg)
+
+	addFolderMigrations(mg)
+	// nolint:staticcheck
+	if mg.Cfg != nil && mg.Cfg.IsFeatureToggleEnabled != nil {
+		// nolint:staticcheck
+		if mg.Cfg.IsFeatureToggleEnabled(featuremgmt.FlagExternalServiceAuth) {
+			oauthserver.AddMigration(mg)
+		}
 	}
 
-	mg.AddMigration("create migration_log table", NewAddTableMigration(migrationLogV1))
+	anonservice.AddMigration(mg)
+	signingkeys.AddMigration(mg)
+
+	ualert.MigrationServiceMigration(mg)
+	ualert.CreatedFoldersMigration(mg)
+
+	dashboardFolderMigrations.AddDashboardFolderMigrations(mg)
+
+	ssosettings.AddMigration(mg)
+
+	ualert.CreateOrgMigratedKVStoreEntries(mg)
 }
 
 func addStarMigrations(mg *Migrator) {

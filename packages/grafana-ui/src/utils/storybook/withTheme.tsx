@@ -1,20 +1,38 @@
+import { DecoratorFn } from '@storybook/react';
 import React from 'react';
-import { ThemeContext } from '../../themes/ThemeContext';
-import { getTheme } from '../../themes/index';
-import { GrafanaThemeType } from '@grafana/data';
-import { RenderFunction } from '../../types';
 import { useDarkMode } from 'storybook-dark-mode';
 
-type SassThemeChangeHandler = (theme: GrafanaThemeType) => void;
-const ThemeableStory: React.FunctionComponent<{ handleSassThemeChange: SassThemeChangeHandler }> = ({
+import { createTheme, GrafanaTheme2, ThemeContext } from '@grafana/data';
+
+import { GlobalStyles } from '../../themes/GlobalStyles/GlobalStyles';
+
+type SassThemeChangeHandler = (theme: GrafanaTheme2) => void;
+const ThemeableStory = ({
   children,
   handleSassThemeChange,
-}) => {
-  const theme = useDarkMode() ? GrafanaThemeType.Dark : GrafanaThemeType.Light;
+}: React.PropsWithChildren<{ handleSassThemeChange: SassThemeChangeHandler }>) => {
+  const theme = createTheme({ colors: { mode: useDarkMode() ? 'dark' : 'light' } });
 
   handleSassThemeChange(theme);
 
-  return <ThemeContext.Provider value={getTheme(theme)}>{children}</ThemeContext.Provider>;
+  const css = `
+  #storybook-root {
+    padding: ${theme.spacing(2)};
+  }
+
+  body {
+    background: ${theme.colors.background.primary};
+  }
+  `;
+
+  return (
+    <ThemeContext.Provider value={theme}>
+      <GlobalStyles />
+
+      <style>{css}</style>
+      {children}
+    </ThemeContext.Provider>
+  );
 };
 
 // Temporary solution. When we update to Storybook V5 we will be able to pass data from decorator to story
@@ -32,7 +50,7 @@ export const renderComponentWithTheme = (component: React.ComponentType<any>, pr
   );
 };
 
-// eslint-disable-next-line react/display-name
-export const withTheme = (handleSassThemeChange: SassThemeChangeHandler) => (story: RenderFunction) => (
-  <ThemeableStory handleSassThemeChange={handleSassThemeChange}>{story()}</ThemeableStory>
-);
+export const withTheme =
+  (handleSassThemeChange: SassThemeChangeHandler): DecoratorFn =>
+  // eslint-disable-next-line react/display-name
+  (story) => <ThemeableStory handleSassThemeChange={handleSassThemeChange}>{story()}</ThemeableStory>;

@@ -1,11 +1,13 @@
 import { ComponentType } from 'react';
-import { RegistryItem, Registry } from '../utils/Registry';
+
 import {
   NumberFieldConfigSettings,
   SliderFieldConfigSettings,
   SelectFieldConfigSettings,
   StringFieldConfigSettings,
 } from '../field';
+import { RegistryItem, Registry } from '../utils/Registry';
+
 import { OptionEditorConfig } from './options';
 
 /**
@@ -31,7 +33,7 @@ export interface OptionsEditorItem<TOptions, TSettings, TEditorProps, TValue>
 export interface OptionsUIRegistryBuilderAPI<
   TOptions,
   TEditorProps,
-  T extends OptionsEditorItem<TOptions, any, TEditorProps, any>
+  T extends OptionsEditorItem<TOptions, any, TEditorProps, any>,
 > {
   addNumberInput?<TSettings extends NumberFieldConfigSettings = NumberFieldConfigSettings>(
     config: OptionEditorConfig<TOptions, TSettings, number>
@@ -78,8 +80,9 @@ export interface OptionsUIRegistryBuilderAPI<
 export abstract class OptionsUIRegistryBuilder<
   TOptions,
   TEditorProps,
-  T extends OptionsEditorItem<TOptions, any, TEditorProps, any>
-> implements OptionsUIRegistryBuilderAPI<TOptions, TEditorProps, T> {
+  T extends OptionsEditorItem<TOptions, any, TEditorProps, any>,
+> implements OptionsUIRegistryBuilderAPI<TOptions, TEditorProps, T>
+{
   private properties: T[] = [];
 
   addCustomEditor<TSettings, TValue>(config: T & OptionsEditorItem<TOptions, TSettings, TEditorProps, TValue>): this {
@@ -91,5 +94,9 @@ export abstract class OptionsUIRegistryBuilder<
     return new Registry(() => {
       return this.properties;
     });
+  }
+
+  getItems() {
+    return this.properties;
   }
 }

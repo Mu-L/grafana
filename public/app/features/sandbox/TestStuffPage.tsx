@@ -1,11 +1,19 @@
-import { ApplyFieldOverrideOptions, DataTransformerConfig, dateMath, FieldColorModeId, PanelData } from '@grafana/data';
-import { GraphNG, LegendDisplayMode, Table } from '@grafana/ui';
-import { config } from 'app/core/config';
-import React, { FC, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useObservable } from 'react-use';
+import AutoSizer from 'react-virtualized-auto-sizer';
+
+import { ApplyFieldOverrideOptions, dateMath, FieldColorModeId, NavModelItem, PanelData } from '@grafana/data';
+import { getPluginExtensions, isPluginExtensionLink } from '@grafana/runtime';
+import { DataTransformerConfig } from '@grafana/schema';
+import { Button, HorizontalGroup, LinkButton, Table } from '@grafana/ui';
+import { Page } from 'app/core/components/Page/Page';
+import { config } from 'app/core/config';
+import { useAppNotification } from 'app/core/copy/appNotification';
+import { QueryGroupOptions } from 'app/types';
+
+import { PanelRenderer } from '../panel/components/PanelRenderer';
 import { QueryGroup } from '../query/components/QueryGroup';
 import { PanelQueryRunner } from '../query/state/PanelQueryRunner';
-import { QueryGroupOptions } from 'app/types';
 
 interface State {
   queryRunner: PanelQueryRunner;
@@ -13,7 +21,7 @@ interface State {
   data?: PanelData;
 }
 
-export const TestStuffPage: FC = () => {
+export const TestStuffPage = () => {
   const [state, setState] = useState<State>(getDefaultState());
   const { queryOptions, queryRunner } = state;
 
@@ -22,7 +30,7 @@ export const TestStuffPage: FC = () => {
 
     queryRunner.run({
       queries: queryOptions.queries,
-      datasource: queryOptions.dataSource.name!,
+      datasource: queryOptions.dataSource,
       timezone: 'browser',
       timeRange: { from: dateMath.parse(timeRange.from)!, to: dateMath.parse(timeRange.to)!, raw: timeRange },
       maxDataPoints: queryOptions.maxDataPoints ?? 100,
@@ -37,36 +45,73 @@ export const TestStuffPage: FC = () => {
   /**
    * Subscribe to data
    */
-  const observable = useMemo(() => queryRunner.getData({ withFieldConfig: true, withTransforms: true }), []);
+  const observable = useMemo(() => queryRunner.getData({ withFieldConfig: true, withTransforms: true }), [queryRunner]);
   const data = useObservable(observable);
 
-  return (
-    <div style={{ padding: '30px 50px' }} className="page-scrollbar-wrapper">
-      <h3>New page</h3>
-      <div>
-        <QueryGroup
-          options={queryOptions}
-          queryRunner={queryRunner}
-          onRunQueries={onRunQueries}
-          onOptionsChange={onOptionsChange}
-        />
-      </div>
+  const node: NavModelItem = {
+    id: 'test-page',
+    text: 'Test page',
+    icon: 'dashboard',
+    subTitle: 'FOR TESTING!',
+    url: 'sandbox/test',
+  };
 
-      {data && (
-        <div style={{ padding: '16px' }}>
-          <GraphNG
-            width={1200}
-            height={300}
-            data={data.series}
-            legend={{ displayMode: LegendDisplayMode.List, placement: 'bottom', calcs: [] }}
-            timeRange={data.timeRange}
-            timeZone="browser"
+  const notifyApp = useAppNotification();
+
+  return (
+    <Page navModel={{ node: node, main: node }}>
+      <Page.Contents>
+        <HorizontalGroup>
+          <LinkToBasicApp extensionPointId="grafana/sandbox/testing" />
+        </HorizontalGroup>
+        {data && (
+          <AutoSizer style={{ width: '100%', height: '600px' }}>
+            {({ width }) => {
+              return (
+                <div>
+                  <PanelRenderer
+                    title="Hello"
+                    pluginId="timeseries"
+                    width={width}
+                    height={300}
+                    data={data}
+                    options={{}}
+                    fieldConfig={{ defaults: {}, overrides: [] }}
+                    timeZone="browser"
+                  />
+                  <Table data={data.series[0]} width={width} height={300} />
+                </div>
+              );
+            }}
+          </AutoSizer>
+        )}
+        <div style={{ marginTop: '16px', height: '45%' }}>
+          <QueryGroup
+            options={queryOptions}
+            queryRunner={queryRunner}
+            onRunQueries={onRunQueries}
+            onOptionsChange={onOptionsChange}
           />
-          <hr></hr>
-          <Table data={data.series[0]} width={1200} height={300} />
         </div>
-      )}
-    </div>
+        <div style={{ display: 'flex', gap: '1em' }}>
+          <Button onClick={() => notifyApp.success('Success toast', 'some more text goes here')} variant="primary">
+            Success
+          </Button>
+          <Button
+            onClick={() => notifyApp.warning('Warning toast', 'some more text goes here', 'bogus-trace-99999')}
+            variant="secondary"
+          >
+            Warning
+          </Button>
+          <Button
+            onClick={() => notifyApp.error('Error toast', 'some more text goes here', 'bogus-trace-fdsfdfsfds')}
+            variant="destructive"
+          >
+            Error
+          </Button>
+        </div>
+      </Page.Contents>
+    </Page>
   );
 };
 
@@ -81,12 +126,13 @@ export function getDefaultState(): State {
       overrides: [],
     },
     replaceVariables: (v: string) => v,
-    theme: config.theme,
+    theme: config.theme2,
   };
 
   const dataConfig = {
     getTransformations: () => [] as DataTransformerConfig[],
     getFieldOverrideOptions: () => options,
+    getDataSupport: () => ({ annotations: false, alertStates: false }),
   };
 
   return {
@@ -99,6 +145,29 @@ export function getDefaultState(): State {
       maxDataPoints: 100,
     },
   };
+}
+
+function LinkToBasicApp({ extensionPointId }: { extensionPointId: string }) {
+  const { extensions } = getPluginExtensions({ extensionPointId });
+
+  if (extensions.length === 0) {
+    return null;
+  }
+
+  return (
+    <div>
+      {extensions.map((extension, i) => {
+        if (!isPluginExtensionLink(extension)) {
+          return null;
+        }
+        return (
+          <LinkButton href={extension.path} title={extension.description} key={extension.id}>
+            {extension.title}
+          </LinkButton>
+        );
+      })}
+    </div>
+  );
 }
 
 export default TestStuffPage;

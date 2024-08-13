@@ -1,12 +1,14 @@
-import { DataSourceInstanceSettings, DataSourceJsonData, DataSourcePluginMeta } from '@grafana/data';
+import { DataSourceInstanceSettings, DataSourcePluginMeta } from '@grafana/data';
 
 export function getDataSourceInstanceSetting(name: string, meta: DataSourcePluginMeta): DataSourceInstanceSettings {
   return {
     id: 1,
-    uid: '',
+    uid: name,
     type: '',
     name,
     meta,
-    jsonData: ({} as unknown) as DataSourceJsonData,
+    access: 'proxy',
+    jsonData: {},
+    readOnly: false,
   };
 }

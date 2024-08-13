@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { css } from 'emotion';
-import { CollapsableSection, Button, TagsInput, Select, Field, Input, Checkbox } from '@grafana/ui';
-import { SelectableValue } from '@grafana/data';
-import { LinkSettingsMode } from '../DashboardSettings/LinksSettings';
-import { DashboardLink, DashboardModel } from '../../state/DashboardModel';
 
-const newLink = {
+import { SelectableValue } from '@grafana/data';
+import { DashboardLink } from '@grafana/schema';
+import { CollapsableSection, TagsInput, Select, Field, Input, Checkbox, Button, IconName } from '@grafana/ui';
+
+import { DashboardModel } from '../../state/DashboardModel';
+
+export const newLink: DashboardLink = {
   icon: 'external link',
-  title: '',
+  title: 'New link',
   tooltip: '',
   type: 'dashboards',
   url: '',
@@ -16,14 +17,14 @@ const newLink = {
   targetBlank: false,
   keepTime: false,
   includeVars: false,
-} as DashboardLink;
+};
 
 const linkTypeOptions = [
   { value: 'dashboards', label: 'Dashboards' },
   { value: 'link', label: 'Link' },
 ];
 
-export const linkIconMap: { [key: string]: string } = {
+export const linkIconMap: Record<string, IconName | undefined> = {
   'external link': 'external-link-alt',
   dashboard: 'apps',
   question: 'question-circle',
@@ -36,69 +37,71 @@ export const linkIconMap: { [key: string]: string } = {
 const linkIconOptions = Object.keys(linkIconMap).map((key) => ({ label: key, value: key }));
 
 type LinkSettingsEditProps = {
-  mode: LinkSettingsMode;
-  editLinkIdx: number | null;
+  editLinkIdx: number;
   dashboard: DashboardModel;
-  backToList: () => void;
+  onGoBack: () => void;
 };
 
-export const LinkSettingsEdit: React.FC<LinkSettingsEditProps> = ({ mode, editLinkIdx, dashboard, backToList }) => {
+export const LinkSettingsEdit = ({ editLinkIdx, dashboard, onGoBack }: LinkSettingsEditProps) => {
   const [linkSettings, setLinkSettings] = useState(editLinkIdx !== null ? dashboard.links[editLinkIdx] : newLink);
 
-  const onTagsChange = (tags: any[]) => {
-    setLinkSettings((link) => ({ ...link, tags: tags }));
+  const onUpdate = (link: DashboardLink) => {
+    const links = [...dashboard.links];
+    links.splice(editLinkIdx, 1, link);
+    dashboard.links = links;
+    setLinkSettings(link);
+  };
+
+  const onTagsChange = (tags: string[]) => {
+    onUpdate({ ...linkSettings, tags: tags });
   };
 
   const onTypeChange = (selectedItem: SelectableValue) => {
-    setLinkSettings((link) => ({ ...link, type: selectedItem.value }));
+    const update = { ...linkSettings, type: selectedItem.value };
+
+    // clear props that are no longe revant for this type
+    if (update.type === 'dashboards') {
+      update.url = '';
+      update.tooltip = '';
+    } else {
+      update.tags = [];
+    }
+
+    onUpdate(update);
   };
 
   const onIconChange = (selectedItem: SelectableValue) => {
-    setLinkSettings((link) => ({ ...link, icon: selectedItem.value }));
+    onUpdate({ ...linkSettings, icon: selectedItem.value });
   };
 
   const onChange = (ev: React.FocusEvent<HTMLInputElement>) => {
     const target = ev.currentTarget;
-    setLinkSettings((link) => ({
-      ...link,
+    onUpdate({
+      ...linkSettings,
       [target.name]: target.type === 'checkbox' ? target.checked : target.value,
-    }));
+    });
   };
 
-  const addLink = () => {
-    dashboard.links = [...dashboard.links, linkSettings];
-    dashboard.updateSubmenuVisibility();
-    backToList();
-  };
-
-  const updateLink = () => {
-    dashboard.links.splice(editLinkIdx!, 1, linkSettings);
-    dashboard.updateSubmenuVisibility();
-    backToList();
-  };
+  const isNew = linkSettings.title === newLink.title;
 
   return (
-    <div
-      className={css`
-        max-width: 600px;
-      `}
-    >
-      <Field label="Type">
-        <Select value={linkSettings.type} options={linkTypeOptions} onChange={onTypeChange} />
-      </Field>
+    <div style={{ maxWidth: '600px' }}>
       <Field label="Title">
-        <Input name="title" aria-label="title" value={linkSettings.title} onChange={onChange} />
+        <Input name="title" id="title" value={linkSettings.title} onChange={onChange} autoFocus={isNew} />
+      </Field>
+      <Field label="Type">
+        <Select inputId="link-type-input" value={linkSettings.type} options={linkTypeOptions} onChange={onTypeChange} />
       </Field>
       {linkSettings.type === 'dashboards' && (
         <>
           <Field label="With tags">
-            <TagsInput tags={linkSettings.tags} placeholder="add tags" onChange={onTagsChange} />
+            <TagsInput tags={linkSettings.tags} onChange={onTagsChange} />
           </Field>
         </>
       )}
       {linkSettings.type === 'link' && (
         <>
-          <Field label="Url">
+          <Field label="URL">
             <Input name="url" value={linkSettings.url} onChange={onChange} />
           </Field>
           <Field label="Tooltip">
@@ -140,11 +143,7 @@ export const LinkSettingsEdit: React.FC<LinkSettingsEditProps> = ({ mode, editLi
           />
         </Field>
       </CollapsableSection>
-
-      <div className="gf-form-button-row">
-        {mode === 'new' && <Button onClick={addLink}>Add</Button>}
-        {mode === 'edit' && <Button onClick={updateLink}>Update</Button>}
-      </div>
+      <Button onClick={onGoBack}>Apply</Button>
     </div>
   );
 };

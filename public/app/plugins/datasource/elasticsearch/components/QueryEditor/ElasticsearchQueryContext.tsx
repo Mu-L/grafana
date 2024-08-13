@@ -1,29 +1,35 @@
-import React, { createContext, FunctionComponent, useCallback, useContext } from 'react';
+import React, { Context, createContext, PropsWithChildren, useCallback, useContext, useEffect, useState } from 'react';
+
+import { TimeRange } from '@grafana/data';
+
 import { ElasticDatasource } from '../../datasource';
 import { combineReducers, useStatelessReducer, DispatchContext } from '../../hooks/useStatelessReducer';
 import { ElasticsearchQuery } from '../../types';
 
+import { createReducer as createBucketAggsReducer } from './BucketAggregationsEditor/state/reducer';
 import { reducer as metricsReducer } from './MetricAggregationsEditor/state/reducer';
-import { reducer as bucketAggsReducer } from './BucketAggregationsEditor/state/reducer';
 import { aliasPatternReducer, queryReducer, initQuery } from './state';
 
 const DatasourceContext = createContext<ElasticDatasource | undefined>(undefined);
 const QueryContext = createContext<ElasticsearchQuery | undefined>(undefined);
+const RangeContext = createContext<TimeRange | undefined>(undefined);
 
 interface Props {
   query: ElasticsearchQuery;
   onChange: (query: ElasticsearchQuery) => void;
   onRunQuery: () => void;
   datasource: ElasticDatasource;
+  range: TimeRange;
 }
 
-export const ElasticsearchProvider: FunctionComponent<Props> = ({
+export const ElasticsearchProvider = ({
   children,
   onChange,
   onRunQuery,
   query,
   datasource,
-}) => {
+  range,
+}: PropsWithChildren<Props>) => {
   const onStateChange = useCallback(
     (query: ElasticsearchQuery) => {
       onChange(query);
@@ -32,11 +38,11 @@ export const ElasticsearchProvider: FunctionComponent<Props> = ({
     [onChange, onRunQuery]
   );
 
-  const reducer = combineReducers({
+  const reducer = combineReducers<Pick<ElasticsearchQuery, 'query' | 'alias' | 'metrics' | 'bucketAggs'>>({
     query: queryReducer,
     alias: aliasPatternReducer,
     metrics: metricsReducer,
-    bucketAggs: bucketAggsReducer,
+    bucketAggs: createBucketAggsReducer(datasource.timeField),
   });
 
   const dispatch = useStatelessReducer(
@@ -46,38 +52,48 @@ export const ElasticsearchProvider: FunctionComponent<Props> = ({
     reducer
   );
 
+  const isUninitialized = !query.metrics || !query.bucketAggs || query.query === undefined;
+
+  const [shouldRunInit, setShouldRunInit] = useState(isUninitialized);
+
   // This initializes the query by dispatching an init action to each reducer.
   // useStatelessReducer will then call `onChange` with the newly generated query
-  if (!query.metrics || !query.bucketAggs || query.query === undefined) {
-    dispatch(initQuery());
+  useEffect(() => {
+    if (shouldRunInit && isUninitialized) {
+      dispatch(initQuery());
+      setShouldRunInit(false);
+    }
+  }, [shouldRunInit, dispatch, isUninitialized]);
 
+  if (isUninitialized) {
     return null;
   }
 
   return (
     <DatasourceContext.Provider value={datasource}>
       <QueryContext.Provider value={query}>
-        <DispatchContext.Provider value={dispatch}>{children}</DispatchContext.Provider>
+        <RangeContext.Provider value={range}>
+          <DispatchContext.Provider value={dispatch}>{children}</DispatchContext.Provider>
+        </RangeContext.Provider>
       </QueryContext.Provider>
     </DatasourceContext.Provider>
   );
 };
 
-export const useQuery = (): ElasticsearchQuery => {
-  const query = useContext(QueryContext);
+interface GetHook {
+  <T>(context: Context<T>): () => NonNullable<T>;
+}
 
-  if (!query) {
+const getHook: GetHook = (c) => () => {
+  const contextValue = useContext(c);
+
+  if (!contextValue) {
     throw new Error('use ElasticsearchProvider first.');
   }
 
-  return query;
+  return contextValue;
 };
 
-export const useDatasource = () => {
-  const datasource = useContext(DatasourceContext);
-  if (!datasource) {
-    throw new Error('use ElasticsearchProvider first.');
-  }
-
-  return datasource;
-};
+export const useQuery = getHook(QueryContext);
+export const useDatasource = getHook(DatasourceContext);
+export const useRange = getHook(RangeContext);

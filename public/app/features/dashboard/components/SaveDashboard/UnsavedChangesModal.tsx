@@ -1,8 +1,11 @@
+import { css } from '@emotion/css';
 import React from 'react';
-import { Button, HorizontalGroup, Modal, VerticalGroup } from '@grafana/ui';
-import { SaveDashboardButton } from './SaveDashboardButton';
+
+import { Button, Modal } from '@grafana/ui';
+
 import { DashboardModel } from '../../state';
-import { css } from 'emotion';
+
+import { SaveDashboardButton } from './SaveDashboardButton';
 
 interface UnsavedChangesModalProps {
   dashboard: DashboardModel;
@@ -11,12 +14,7 @@ interface UnsavedChangesModalProps {
   onSaveSuccess?: () => void;
 }
 
-export const UnsavedChangesModal: React.FC<UnsavedChangesModalProps> = ({
-  dashboard,
-  onSaveSuccess,
-  onDiscard,
-  onDismiss,
-}) => {
+export const UnsavedChangesModal = ({ dashboard, onSaveSuccess, onDiscard, onDismiss }: UnsavedChangesModalProps) => {
   return (
     <Modal
       isOpen={true}
@@ -27,24 +25,16 @@ export const UnsavedChangesModal: React.FC<UnsavedChangesModalProps> = ({
         width: 500px;
       `}
     >
-      <VerticalGroup align={'center'} spacing={'md'}>
-        <h4>Do you want to save your changes?</h4>
-        <HorizontalGroup justify="center">
-          <SaveDashboardButton dashboard={dashboard} onSaveSuccess={onSaveSuccess} />
-          <Button
-            variant="destructive"
-            onClick={() => {
-              onDiscard();
-              onDismiss();
-            }}
-          >
-            Discard
-          </Button>
-          <Button variant="secondary" onClick={onDismiss}>
-            Cancel
-          </Button>
-        </HorizontalGroup>
-      </VerticalGroup>
+      <h5>Do you want to save your changes?</h5>
+      <Modal.ButtonRow>
+        <Button variant="secondary" onClick={onDismiss} fill="outline">
+          Cancel
+        </Button>
+        <Button variant="destructive" onClick={onDiscard}>
+          Discard
+        </Button>
+        <SaveDashboardButton dashboard={dashboard} onSaveSuccess={onSaveSuccess} />
+      </Modal.ButtonRow>
     </Modal>
   );
 };

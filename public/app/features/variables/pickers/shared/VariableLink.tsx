@@ -1,23 +1,29 @@
-import React, { FC, MouseEvent, useCallback } from 'react';
-import { css } from 'emotion';
-import { getTagColorsFromName, Icon, Tooltip, useStyles } from '@grafana/ui';
-import { selectors } from '@grafana/e2e-selectors';
-import { GrafanaTheme } from '@grafana/data';
+import { css } from '@emotion/css';
+import React, { MouseEvent, useCallback } from 'react';
 
-import { VariableTag } from '../../types';
+import { GrafanaTheme2 } from '@grafana/data';
+import { selectors } from '@grafana/e2e-selectors';
+import { Icon, Tooltip, useStyles2 } from '@grafana/ui';
+import { t } from 'app/core/internationalization';
+
+import { ALL_VARIABLE_TEXT } from '../../constants';
 
 interface Props {
   onClick: () => void;
   text: string;
-  tags: VariableTag[];
   loading: boolean;
   onCancel: () => void;
+  disabled?: boolean;
+  /**
+   *  htmlFor, needed for the label
+   */
+  id: string;
 }
 
-export const VariableLink: FC<Props> = ({ loading, onClick: propsOnClick, tags, text, onCancel }) => {
-  const styles = useStyles(getStyles);
+export const VariableLink = ({ loading, disabled, onClick: propsOnClick, text, onCancel, id }: Props) => {
+  const styles = useStyles2(getStyles);
   const onClick = useCallback(
-    (event: MouseEvent<HTMLAnchorElement>) => {
+    (event: MouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
       event.preventDefault();
       propsOnClick();
@@ -29,50 +35,47 @@ export const VariableLink: FC<Props> = ({ loading, onClick: propsOnClick, tags, 
     return (
       <div
         className={styles.container}
-        aria-label={selectors.pages.Dashboard.SubMenu.submenuItemValueDropDownValueLinkTexts(`${text}`)}
+        data-testid={selectors.pages.Dashboard.SubMenu.submenuItemValueDropDownValueLinkTexts(`${text}`)}
         title={text}
+        id={id}
       >
-        <VariableLinkText tags={tags} text={text} />
+        <VariableLinkText text={text} />
         <LoadingIndicator onCancel={onCancel} />
       </div>
     );
   }
 
   return (
-    <a
+    <button
       onClick={onClick}
       className={styles.container}
-      aria-label={selectors.pages.Dashboard.SubMenu.submenuItemValueDropDownValueLinkTexts(`${text}`)}
+      data-testid={selectors.pages.Dashboard.SubMenu.submenuItemValueDropDownValueLinkTexts(`${text}`)}
+      aria-expanded={false}
+      aria-controls={`options-${id}`}
+      id={id}
       title={text}
+      disabled={disabled}
     >
-      <VariableLinkText tags={tags} text={text} />
-      <Icon name="angle-down" size="sm" />
-    </a>
+      <VariableLinkText text={text} />
+      <Icon aria-hidden name="angle-down" size="sm" />
+    </button>
   );
 };
 
-const VariableLinkText: FC<Pick<Props, 'tags' | 'text'>> = ({ tags, text }) => {
-  const styles = useStyles(getStyles);
+interface VariableLinkTextProps {
+  text: string;
+}
+
+const VariableLinkText = ({ text }: VariableLinkTextProps) => {
+  const styles = useStyles2(getStyles);
   return (
     <span className={styles.textAndTags}>
-      {text}
-      {tags.map((tag) => {
-        const { color, borderColor } = getTagColorsFromName(tag.text.toString());
-        return (
-          <span key={`${tag.text}`}>
-            <span className="label-tag" style={{ backgroundColor: color, borderColor }}>
-              &nbsp;&nbsp;
-              <Icon name="tag-alt" />
-              &nbsp; {tag.text}
-            </span>
-          </span>
-        );
-      })}
+      {text === ALL_VARIABLE_TEXT ? t('variable.picker.link-all', 'All') : text}
     </span>
   );
 };
 
-const LoadingIndicator: FC<Pick<Props, 'onCancel'>> = ({ onCancel }) => {
+const LoadingIndicator = ({ onCancel }: Pick<Props, 'onCancel'>) => {
   const onClick = useCallback(
     (event: MouseEvent) => {
       event.preventDefault();
@@ -86,7 +89,7 @@ const LoadingIndicator: FC<Pick<Props, 'onCancel'>> = ({ onCancel }) => {
       <Icon
         className="spin-clockwise"
         name="sync"
-        size="xs"
+        size="sm"
         onClick={onClick}
         aria-label={selectors.components.LoadingIndicator.icon}
       />
@@ -94,28 +97,34 @@ const LoadingIndicator: FC<Pick<Props, 'onCancel'>> = ({ onCancel }) => {
   );
 };
 
-const getStyles = (theme: GrafanaTheme) => ({
+const getStyles = (theme: GrafanaTheme2) => ({
   container: css`
     max-width: 500px;
     padding-right: 10px;
-    padding: 0 ${theme.spacing.sm};
-    background-color: ${theme.colors.formInputBg};
-    border: 1px solid ${theme.colors.formInputBorder};
-    border-radius: ${theme.border.radius.sm};
+    padding: 0 ${theme.spacing(1)};
+    background-color: ${theme.components.input.background};
+    border: 1px solid ${theme.components.input.borderColor};
+    border-radius: ${theme.shape.radius.default};
     display: flex;
     align-items: center;
     color: ${theme.colors.text};
-    height: ${theme.height.md}px;
+    height: ${theme.spacing(theme.components.height.md)};
 
     .label-tag {
       margin: 0 5px;
+    }
+
+    &:disabled {
+      background-color: ${theme.colors.action.disabledBackground};
+      color: ${theme.colors.action.disabledText};
+      border: 1px solid ${theme.colors.action.disabledBackground};
     }
   `,
   textAndTags: css`
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    margin-right: ${theme.spacing.xxs};
+    margin-right: ${theme.spacing(0.25)};
     user-select: none;
   `,
 });

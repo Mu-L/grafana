@@ -1,7 +1,7 @@
 // Libraries
-import isNumber from 'lodash/isNumber';
+import { isNumber } from 'lodash';
 
-import { NullValueMode, Field, FieldState, FieldCalcs } from '../types/index';
+import { NullValueMode, Field, FieldCalcs, FieldType } from '../types/index';
 import { Registry, RegistryItem } from '../utils/Registry';
 
 export enum ReducerID {
@@ -10,6 +10,8 @@ export enum ReducerID {
   min = 'min',
   logmin = 'logmin',
   mean = 'mean',
+  variance = 'variance',
+  stdDev = 'stdDev',
   last = 'last',
   first = 'first',
   count = 'count',
@@ -18,15 +20,18 @@ export enum ReducerID {
   diffperc = 'diffperc',
   delta = 'delta',
   step = 'step',
-
   firstNotNull = 'firstNotNull',
   lastNotNull = 'lastNotNull',
-
   changeCount = 'changeCount',
   distinctCount = 'distinctCount',
-
   allIsZero = 'allIsZero',
   allIsNull = 'allIsNull',
+  allValues = 'allValues',
+  uniqueValues = 'uniqueValues',
+}
+
+export function isReducerID(id: string): id is ReducerID {
+  return Object.keys(ReducerID).includes(id);
 }
 
 // Internal function
@@ -34,7 +39,7 @@ type FieldReducer = (field: Field, ignoreNulls: boolean, nullAsZero: boolean) =>
 
 export interface FieldReducerInfo extends RegistryItem {
   // Internal details
-  emptyInputResult?: any; // typically null, but some things like 'count' & 'sum' should be zero
+  emptyInputResult?: unknown; // typically null, but some things like 'count' & 'sum' should be zero
   standard: boolean; // The most common stats can all be calculated in a single pass
   reduce?: FieldReducer;
 }
@@ -46,6 +51,8 @@ interface ReduceFieldOptions {
 
 /**
  * @returns an object with a key for each selected stat
+ * NOTE: This will also modify the 'field.state' object,
+ * leaving values in a cache until cleared.
  */
 export function reduceField(options: ReduceFieldOptions): FieldCalcs {
   const { field, reducers } = options;
@@ -69,7 +76,7 @@ export function reduceField(options: ReduceFieldOptions): FieldCalcs {
     }
   }
   if (!field.state) {
-    field.state = {} as FieldState;
+    field.state = {};
   }
 
   const queue = fieldReducers.list(reducers);
@@ -78,14 +85,16 @@ export function reduceField(options: ReduceFieldOptions): FieldCalcs {
   // This lets the concrete implementations assume at least one row
   const data = field.values;
   if (data.length < 1) {
-    const calcs = { ...field.state.calcs } as FieldCalcs;
+    const calcs: FieldCalcs = { ...field.state.calcs };
     for (const reducer of queue) {
       calcs[reducer.id] = reducer.emptyInputResult !== null ? reducer.emptyInputResult : null;
     }
     return (field.state.calcs = calcs);
   }
 
-  const { nullValueMode } = field.config;
+  // Default to Ignore for nullValueMode.
+  const { nullValueMode = NullValueMode.Ignore } = field.config;
+
   const ignoreNulls = nullValueMode === NullValueMode.Ignore;
   const nullAsZero = nullValueMode === NullValueMode.AsZero;
 
@@ -127,8 +136,8 @@ export function reduceField(options: ReduceFieldOptions): FieldCalcs {
 export const fieldReducers = new Registry<FieldReducerInfo>(() => [
   {
     id: ReducerID.lastNotNull,
-    name: 'Last (not null)',
-    description: 'Last non-null value',
+    name: 'Last *',
+    description: 'Last non-null value (also excludes NaNs)',
     standard: true,
     aliasIds: ['current'],
     reduce: calculateLastNotNull,
@@ -136,21 +145,35 @@ export const fieldReducers = new Registry<FieldReducerInfo>(() => [
   {
     id: ReducerID.last,
     name: 'Last',
-    description: 'Last Value',
+    description: 'Last value',
     standard: true,
     reduce: calculateLast,
   },
-  { id: ReducerID.first, name: 'First', description: 'First Value', standard: true, reduce: calculateFirst },
   {
     id: ReducerID.firstNotNull,
-    name: 'First (not null)',
-    description: 'First non-null value',
+    name: 'First *',
+    description: 'First non-null value (also excludes NaNs)',
     standard: true,
     reduce: calculateFirstNotNull,
   },
+  { id: ReducerID.first, name: 'First', description: 'First Value', standard: true, reduce: calculateFirst },
   { id: ReducerID.min, name: 'Min', description: 'Minimum Value', standard: true },
   { id: ReducerID.max, name: 'Max', description: 'Maximum Value', standard: true },
   { id: ReducerID.mean, name: 'Mean', description: 'Average Value', standard: true, aliasIds: ['avg'] },
+  {
+    id: ReducerID.variance,
+    name: 'Variance',
+    description: 'Variance of all values in a field',
+    standard: false,
+    reduce: calculateStdDev,
+  },
+  {
+    id: ReducerID.stdDev,
+    name: 'StdDev',
+    description: 'Standard deviation of all values in a field',
+    standard: false,
+    reduce: calculateStdDev,
+  },
   {
     id: ReducerID.sum,
     name: 'Total',
@@ -230,10 +253,26 @@ export const fieldReducers = new Registry<FieldReducerInfo>(() => [
     description: 'Percentage difference between first and last values',
     standard: true,
   },
+  {
+    id: ReducerID.allValues,
+    name: 'All values',
+    description: 'Returns an array with all values',
+    standard: false,
+    reduce: (field: Field) => ({ allValues: [...field.values] }),
+  },
+  {
+    id: ReducerID.uniqueValues,
+    name: 'All unique values',
+    description: 'Returns an array with all unique values',
+    standard: false,
+    reduce: (field: Field) => ({
+      uniqueValues: [...new Set(field.values)],
+    }),
+  },
 ]);
 
 export function doStandardCalcs(field: Field, ignoreNulls: boolean, nullAsZero: boolean): FieldCalcs {
-  const calcs = {
+  const calcs: FieldCalcs = {
     sum: 0,
     max: -Number.MAX_VALUE,
     min: Number.MAX_VALUE,
@@ -255,13 +294,14 @@ export function doStandardCalcs(field: Field, ignoreNulls: boolean, nullAsZero: 
 
     // Just used for calculations -- not exposed as a stat
     previousDeltaUp: true,
-  } as FieldCalcs;
+  };
 
   const data = field.values;
-  calcs.count = data.length;
+
+  const isNumberField = field.type === FieldType.number || field.type === FieldType.time;
 
   for (let i = 0; i < data.length; i++) {
-    let currentValue = data.get(i);
+    let currentValue = data[i];
 
     if (i === 0) {
       calcs.first = currentValue;
@@ -269,7 +309,7 @@ export function doStandardCalcs(field: Field, ignoreNulls: boolean, nullAsZero: 
 
     calcs.last = currentValue;
 
-    if (currentValue === null) {
+    if (currentValue == null) {
       if (ignoreNulls) {
         continue;
       }
@@ -278,13 +318,16 @@ export function doStandardCalcs(field: Field, ignoreNulls: boolean, nullAsZero: 
       }
     }
 
-    if (currentValue !== null && currentValue !== undefined) {
+    calcs.count++;
+
+    if (currentValue != null && !Number.isNaN(currentValue)) {
+      // null || undefined || NaN
       const isFirst = calcs.firstNotNull === null;
       if (isFirst) {
         calcs.firstNotNull = currentValue;
       }
 
-      if (isNumber(currentValue)) {
+      if (isNumberField) {
         calcs.sum += currentValue;
         calcs.allIsNull = false;
         calcs.nonNullCount++;
@@ -368,14 +411,14 @@ export function doStandardCalcs(field: Field, ignoreNulls: boolean, nullAsZero: 
 }
 
 function calculateFirst(field: Field, ignoreNulls: boolean, nullAsZero: boolean): FieldCalcs {
-  return { first: field.values.get(0) };
+  return { first: field.values[0] };
 }
 
 function calculateFirstNotNull(field: Field, ignoreNulls: boolean, nullAsZero: boolean): FieldCalcs {
   const data = field.values;
   for (let idx = 0; idx < data.length; idx++) {
-    const v = data.get(idx);
-    if (v != null && v !== undefined) {
+    const v = data[idx];
+    if (v != null && !Number.isNaN(v)) {
       return { firstNotNull: v };
     }
   }
@@ -384,28 +427,55 @@ function calculateFirstNotNull(field: Field, ignoreNulls: boolean, nullAsZero: b
 
 function calculateLast(field: Field, ignoreNulls: boolean, nullAsZero: boolean): FieldCalcs {
   const data = field.values;
-  return { last: data.get(data.length - 1) };
+  return { last: data[data.length - 1] };
 }
 
 function calculateLastNotNull(field: Field, ignoreNulls: boolean, nullAsZero: boolean): FieldCalcs {
   const data = field.values;
   let idx = data.length - 1;
   while (idx >= 0) {
-    const v = data.get(idx--);
-    if (v != null && v !== undefined) {
+    const v = data[idx--];
+    if (v != null && !Number.isNaN(v)) {
       return { lastNotNull: v };
     }
   }
   return { lastNotNull: null };
 }
 
+/** Calculates standard deviation and variance */
+function calculateStdDev(field: Field, ignoreNulls: boolean, nullAsZero: boolean): FieldCalcs {
+  // Only support number fields
+  if (!(field.type === FieldType.number || field.type === FieldType.time)) {
+    return { variance: 0, stdDev: 0 };
+  }
+
+  let squareSum = 0;
+  let runningMean = 0;
+  let runningNonNullCount = 0;
+  const data = field.values;
+  for (let i = 0; i < data.length; i++) {
+    const currentValue = data[i];
+    if (currentValue != null) {
+      runningNonNullCount++;
+      let _oldMean = runningMean;
+      runningMean += (currentValue - _oldMean) / runningNonNullCount;
+      squareSum += (currentValue - _oldMean) * (currentValue - runningMean);
+    }
+  }
+  if (runningNonNullCount > 0) {
+    const variance = squareSum / runningNonNullCount;
+    return { variance, stdDev: Math.sqrt(variance) };
+  }
+  return { variance: 0, stdDev: 0 };
+}
+
 function calculateChangeCount(field: Field, ignoreNulls: boolean, nullAsZero: boolean): FieldCalcs {
   const data = field.values;
   let count = 0;
   let first = true;
-  let last: any = null;
+  let last = null;
   for (let i = 0; i < data.length; i++) {
-    let currentValue = data.get(i);
+    let currentValue = data[i];
     if (currentValue === null) {
       if (ignoreNulls) {
         continue;
@@ -426,9 +496,9 @@ function calculateChangeCount(field: Field, ignoreNulls: boolean, nullAsZero: bo
 
 function calculateDistinctCount(field: Field, ignoreNulls: boolean, nullAsZero: boolean): FieldCalcs {
   const data = field.values;
-  const distinct = new Set<any>();
+  const distinct = new Set();
   for (let i = 0; i < data.length; i++) {
-    let currentValue = data.get(i);
+    let currentValue = data[i];
     if (currentValue === null) {
       if (ignoreNulls) {
         continue;

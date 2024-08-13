@@ -1,10 +1,10 @@
 import React, { useRef, useState, useLayoutEffect } from 'react';
-import { selectors } from '@grafana/e2e-selectors';
 import { useClickAway } from 'react-use';
-import { Portal } from '../Portal/Portal';
+
+import { selectors } from '@grafana/e2e-selectors';
+
 import { Menu } from '../Menu/Menu';
-import { MenuGroup, MenuItemsGroup } from '../Menu/MenuGroup';
-import { MenuItem } from '../Menu/MenuItem';
+import { Portal } from '../Portal/Portal';
 
 export interface ContextMenuProps {
   /** Starting horizontal position for the menu */
@@ -13,69 +13,71 @@ export interface ContextMenuProps {
   y: number;
   /** Callback for closing the menu */
   onClose?: () => void;
-  /** List of the menu items to display */
-  itemsGroup?: MenuItemsGroup[];
+  /** On menu open focus the first element */
+  focusOnOpen?: boolean;
+  /** RenderProp function that returns menu items to display */
+  renderMenuItems?: () => React.ReactNode;
   /** A function that returns header element */
   renderHeader?: () => React.ReactNode;
 }
 
-export const ContextMenu: React.FC<ContextMenuProps> = React.memo(({ x, y, onClose, itemsGroup, renderHeader }) => {
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [positionStyles, setPositionStyles] = useState({});
+export const ContextMenu = React.memo(
+  ({ x, y, onClose, focusOnOpen = true, renderMenuItems, renderHeader }: ContextMenuProps) => {
+    const menuRef = useRef<HTMLDivElement>(null);
+    const [positionStyles, setPositionStyles] = useState({});
 
-  useLayoutEffect(() => {
-    const menuElement = menuRef.current;
-    if (menuElement) {
-      const rect = menuElement.getBoundingClientRect();
-      const OFFSET = 5;
-      const collisions = {
-        right: window.innerWidth < x + rect.width,
-        bottom: window.innerHeight < rect.bottom + rect.height + OFFSET,
-      };
+    useLayoutEffect(() => {
+      const menuElement = menuRef.current;
+      if (menuElement) {
+        const rect = menuElement.getBoundingClientRect();
+        const OFFSET = 5;
+        const collisions = {
+          right: window.innerWidth < x + rect.width,
+          bottom: window.innerHeight < y + rect.height + OFFSET,
+        };
 
-      setPositionStyles({
-        position: 'fixed',
-        left: collisions.right ? x - rect.width - OFFSET : x - OFFSET,
-        top: collisions.bottom ? y - rect.height - OFFSET : y + OFFSET,
-      });
-    }
-  }, [x, y]);
+        setPositionStyles({
+          position: 'fixed',
+          left: collisions.right ? x - rect.width - OFFSET : x - OFFSET,
+          top: Math.max(0, collisions.bottom ? y - rect.height - OFFSET : y + OFFSET),
+        });
+      }
+    }, [x, y]);
 
-  useClickAway(menuRef, () => {
-    if (onClose) {
-      onClose();
-    }
-  });
+    useClickAway(menuRef, () => {
+      onClose?.();
+    });
+    const header = renderHeader?.();
+    const menuItems = renderMenuItems?.();
+    const onOpen = (setFocusedItem: (a: number) => void) => {
+      if (focusOnOpen) {
+        setFocusedItem(0);
+      }
+    };
+    const onKeyDown = (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose?.();
+      }
+    };
 
-  const header = renderHeader && renderHeader();
-  return (
-    <Portal>
-      <Menu
-        header={header}
-        ref={menuRef}
-        style={positionStyles}
-        ariaLabel={selectors.components.Menu.MenuComponent('Context')}
-        onClick={onClose}
-      >
-        {itemsGroup?.map((group, index) => (
-          <MenuGroup key={`${group.label}${index}`} label={group.label} ariaLabel={group.label}>
-            {(group.items || []).map((item) => (
-              <MenuItem
-                key={`${item.label}`}
-                url={item.url}
-                label={item.label}
-                ariaLabel={item.label}
-                target={item.target}
-                icon={item.icon}
-                active={item.active}
-                onClick={item.onClick}
-              />
-            ))}
-          </MenuGroup>
-        ))}
-      </Menu>
-    </Portal>
-  );
-});
+    return (
+      <Portal>
+        <Menu
+          header={header}
+          ref={menuRef}
+          style={positionStyles}
+          ariaLabel={selectors.components.Menu.MenuComponent('Context')}
+          onOpen={onOpen}
+          onClick={onClose}
+          onKeyDown={onKeyDown}
+        >
+          {menuItems}
+        </Menu>
+      </Portal>
+    );
+  }
+);
 
 ContextMenu.displayName = 'ContextMenu';

@@ -1,128 +1,123 @@
-import React, { useEffect, useState } from 'react';
+import { css } from '@emotion/css';
+import React, { useMemo, useReducer } from 'react';
 import { useDebounce } from 'react-use';
-import { css, cx } from 'emotion';
-import { Button, Icon, Input, stylesFactory, useStyles } from '@grafana/ui';
-import { DateTimeInput, GrafanaTheme } from '@grafana/data';
 
+import { GrafanaTheme2, LoadingState } from '@grafana/data';
+import { Pagination, Stack, useStyles2 } from '@grafana/ui';
+
+import { LibraryElementDTO } from '../../types';
 import { LibraryPanelCard } from '../LibraryPanelCard/LibraryPanelCard';
-import { deleteLibraryPanel, getLibraryPanels } from '../../state/api';
-import { LibraryPanelDTO } from '../../types';
+
+import { asyncDispatcher, deleteLibraryPanel, searchForLibraryPanels } from './actions';
+import { changePage, initialLibraryPanelsViewState, libraryPanelsViewReducer } from './reducer';
 
 interface LibraryPanelViewProps {
-  className?: string;
-  onCreateNewPanel?: () => void;
-  children?: (panel: LibraryPanelDTO, i: number) => JSX.Element | JSX.Element[];
-  onClickCard?: (panel: LibraryPanelDTO) => void;
-  formatDate?: (dateString: DateTimeInput, format?: string) => string;
+  onClickCard: (panel: LibraryElementDTO) => void;
   showSecondaryActions?: boolean;
   currentPanelId?: string;
+  searchString: string;
+  sortDirection?: string;
+  panelFilter?: string[];
+  folderFilter?: string[];
+  perPage?: number;
+  isWidget?: boolean;
 }
 
-export const LibraryPanelsView: React.FC<LibraryPanelViewProps> = ({
-  children,
-  className,
-  onCreateNewPanel,
+export const LibraryPanelsView = ({
   onClickCard,
-  formatDate,
+  searchString,
+  sortDirection,
+  panelFilter,
+  folderFilter,
   showSecondaryActions,
   currentPanelId: currentPanel,
-}) => {
-  const styles = useStyles(getPanelViewStyles);
-  const [searchString, setSearchString] = useState('');
-
-  // Deliberately not using useAsync here as we want to be able to update libraryPanels without
-  // making an additional API request (for example when a user deletes a library panel and we want to update the view to reflect that)
-  const [libraryPanels, setLibraryPanels] = useState<LibraryPanelDTO[] | undefined>(undefined);
-  useEffect(() => {
-    getLibraryPanels().then((panels) => {
-      setLibraryPanels(panels);
-    });
-  }, []);
-
-  const [filteredItems, setFilteredItems] = useState(libraryPanels);
-  useDebounce(
-    () => {
-      setFilteredItems(
-        libraryPanels?.filter(
-          (v) => v.name.toLowerCase().includes(searchString.toLowerCase()) && v.uid !== currentPanel
-        )
-      );
-    },
-    300,
-    [searchString, libraryPanels, currentPanel]
-  );
-
-  const onDeletePanel = async (uid: string) => {
-    try {
-      await deleteLibraryPanel(uid);
-      const panelIndex = libraryPanels!.findIndex((panel) => panel.uid === uid);
-      setLibraryPanels([...libraryPanels!.slice(0, panelIndex), ...libraryPanels!.slice(panelIndex + 1)]);
-    } catch (err) {
-      throw err;
+  perPage: propsPerPage = 40,
+  isWidget,
+}: LibraryPanelViewProps) => {
+  const styles = useStyles2(getPanelViewStyles);
+  const [{ libraryPanels, page, perPage, numberOfPages, loadingState, currentPanelId }, dispatch] = useReducer(
+    libraryPanelsViewReducer,
+    {
+      ...initialLibraryPanelsViewState,
+      currentPanelId: currentPanel,
+      perPage: propsPerPage,
     }
-  };
+  );
+  const asyncDispatch = useMemo(() => asyncDispatcher(dispatch), [dispatch]);
+  useDebounce(
+    () =>
+      asyncDispatch(
+        searchForLibraryPanels({
+          searchString,
+          sortDirection,
+          panelFilter,
+          folderFilterUIDs: folderFilter,
+          page,
+          perPage,
+          currentPanelId,
+          isWidget,
+        })
+      ),
+    300,
+    [searchString, sortDirection, panelFilter, folderFilter, page, asyncDispatch]
+  );
+  const onDelete = ({ uid }: LibraryElementDTO) =>
+    asyncDispatch(
+      deleteLibraryPanel(uid, {
+        searchString,
+        sortDirection,
+        panelFilter,
+        folderFilterUIDs: folderFilter,
+        page,
+        perPage,
+      })
+    );
+  const onPageChange = (page: number) => asyncDispatch(changePage({ page }));
 
   return (
-    <div className={cx(styles.container, className)}>
-      <div className={styles.searchHeader}>
-        <Input
-          placeholder="Search the panel library"
-          prefix={<Icon name="search" />}
-          value={searchString}
-          autoFocus
-          onChange={(e) => setSearchString(e.currentTarget.value)}
-        ></Input>
-        {/* <Select placeholder="Filter by" onChange={() => {}} width={35} /> */}
-      </div>
-      <div className={styles.libraryPanelList}>
-        {libraryPanels === undefined ? (
-          <p>Loading library panels...</p>
-        ) : filteredItems?.length! < 1 ? (
-          <p>No library panels found.</p>
-        ) : (
-          filteredItems?.map((item, i) => (
-            <LibraryPanelCard
-              key={`shared-panel=${i}`}
-              libraryPanel={item}
-              onDelete={() => onDeletePanel(item.uid)}
-              onClick={onClickCard}
-              formatDate={formatDate}
-              showSecondaryActions={showSecondaryActions}
-            >
-              {children?.(item, i)}
-            </LibraryPanelCard>
-          ))
-        )}
-      </div>
-      {onCreateNewPanel && (
-        <Button icon="plus" className={styles.newPanelButton} onClick={onCreateNewPanel}>
-          Create a new reusable panel
-        </Button>
+    <Stack direction="column" wrap="nowrap">
+      {loadingState === LoadingState.Loading ? (
+        <>
+          <LibraryPanelCard.Skeleton showSecondaryActions={showSecondaryActions} />
+          <LibraryPanelCard.Skeleton showSecondaryActions={showSecondaryActions} />
+          <LibraryPanelCard.Skeleton showSecondaryActions={showSecondaryActions} />
+        </>
+      ) : libraryPanels.length < 1 ? (
+        <p className={styles.noPanelsFound}>No library panels found.</p>
+      ) : (
+        libraryPanels?.map((item, i) => (
+          <LibraryPanelCard
+            key={`library-panel=${i}`}
+            libraryPanel={item}
+            onDelete={onDelete}
+            onClick={onClickCard}
+            showSecondaryActions={showSecondaryActions}
+          />
+        ))
       )}
-    </div>
+      {libraryPanels.length ? (
+        <div className={styles.pagination}>
+          <Pagination
+            currentPage={page}
+            numberOfPages={numberOfPages}
+            onNavigate={onPageChange}
+            hideWhenSinglePage={true}
+          />
+        </div>
+      ) : null}
+    </Stack>
   );
 };
 
-const getPanelViewStyles = stylesFactory((theme: GrafanaTheme) => {
+const getPanelViewStyles = (theme: GrafanaTheme2) => {
   return {
-    container: css`
-      display: flex;
-      flex-direction: column;
-      flex-wrap: nowrap;
-      gap: ${theme.spacing.sm};
-      height: 100%;
-    `,
-    libraryPanelList: css`
-      display: flex;
-      overflow-x: auto;
-      flex-direction: column;
-    `,
-    searchHeader: css`
-      display: flex;
-    `,
-    newPanelButton: css`
-      margin-top: 10px;
-      align-self: flex-start;
-    `,
+    pagination: css({
+      alignSelf: 'center',
+      marginTop: theme.spacing(1),
+    }),
+    noPanelsFound: css({
+      label: 'noPanelsFound',
+      minHeight: 200,
+    }),
   };
-});
+};

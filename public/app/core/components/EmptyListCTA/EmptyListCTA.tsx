@@ -1,13 +1,15 @@
-import React, { MouseEvent, useContext } from 'react';
-import { css } from 'emotion';
-import { CallToActionCard, Icon, IconName, LinkButton, ThemeContext } from '@grafana/ui';
+import { css } from '@emotion/css';
+import React, { MouseEvent } from 'react';
+
 import { selectors } from '@grafana/e2e-selectors';
+import { Button, CallToActionCard, Icon, IconName, LinkButton } from '@grafana/ui';
 
 export interface Props {
   title: string;
   buttonIcon: IconName;
   buttonLink?: string;
   buttonTitle: string;
+  buttonDisabled?: boolean;
   onClick?: (event: MouseEvent) => void;
   proTip?: string;
   proTipLink?: string;
@@ -17,20 +19,21 @@ export interface Props {
   infoBoxTitle?: string;
 }
 
-const ctaStyle = css`
-  text-align: center;
-`;
+const ctaStyle = css({
+  textAlign: 'center',
+});
 
-const infoBoxStyles = css`
-  max-width: 700px;
-  margin: 0 auto;
-`;
+const infoBoxStyles = css({
+  maxWidth: '700px',
+  margin: '0 auto',
+});
 
-const EmptyListCTA: React.FunctionComponent<Props> = ({
+const EmptyListCTA = ({
   title,
   buttonIcon,
   buttonLink,
   buttonTitle,
+  buttonDisabled,
   onClick,
   proTip,
   proTipLink,
@@ -38,9 +41,7 @@ const EmptyListCTA: React.FunctionComponent<Props> = ({
   proTipTarget,
   infoBox,
   infoBoxTitle,
-}) => {
-  const theme = useContext(ThemeContext);
-
+}: Props) => {
   const footer = () => {
     return (
       <>
@@ -48,9 +49,11 @@ const EmptyListCTA: React.FunctionComponent<Props> = ({
           <span key="proTipFooter">
             <Icon name="rocket" />
             <> ProTip: {proTip} </>
-            <a href={proTipLink} target={proTipTarget} className="text-link">
-              {proTipLinkTitle}
-            </a>
+            {proTipLink && (
+              <a href={proTipLink} target={proTipTarget} className="text-link">
+                {proTipLinkTitle}
+              </a>
+            )}
           </span>
         ) : (
           ''
@@ -68,33 +71,27 @@ const EmptyListCTA: React.FunctionComponent<Props> = ({
   };
 
   const ctaElementClassName = !footer()
-    ? css`
-        margin-bottom: 20px;
-      `
+    ? css({
+        marginBottom: '20px',
+      })
     : '';
 
+  const ButtonEl = buttonLink ? LinkButton : Button;
   const ctaElement = (
-    <LinkButton
+    <ButtonEl
       size="lg"
       onClick={onClick}
       href={buttonLink}
       icon={buttonIcon}
       className={ctaElementClassName}
-      aria-label={selectors.components.CallToActionCard.button(buttonTitle)}
+      data-testid={selectors.components.CallToActionCard.buttonV2(buttonTitle)}
+      disabled={buttonDisabled}
     >
       {buttonTitle}
-    </LinkButton>
+    </ButtonEl>
   );
 
-  return (
-    <CallToActionCard
-      className={ctaStyle}
-      message={title}
-      footer={footer()}
-      callToActionElement={ctaElement}
-      theme={theme}
-    />
-  );
+  return <CallToActionCard className={ctaStyle} message={title} footer={footer()} callToActionElement={ctaElement} />;
 };
 
 export default EmptyListCTA;

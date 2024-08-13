@@ -1,9 +1,9 @@
-import { mockTransformationsRegistry } from '../../utils/tests/mockTransformationsRegistry';
-import { DataTransformerConfig, DisplayProcessor, Field, FieldType } from '../../types';
-import { DataTransformerID } from './ids';
 import { toDataFrame } from '../../dataframe';
+import { DataTransformerConfig, DisplayProcessor, Field, FieldType } from '../../types';
+import { mockTransformationsRegistry } from '../../utils/tests/mockTransformationsRegistry';
 import { transformDataFrame } from '../transformDataFrame';
-import { ArrayVector } from '../../vector';
+
+import { DataTransformerID } from './ids';
 import { mergeTransformer, MergeTransformerOptions } from './merge';
 
 describe('Merge multiple to single', () => {
@@ -14,6 +14,20 @@ describe('Merge multiple to single', () => {
 
   beforeAll(() => {
     mockTransformationsRegistry([mergeTransformer]);
+  });
+
+  it('skip combine one serie', async () => {
+    const seriesA = toDataFrame({
+      name: 'A',
+      fields: [
+        { name: 'Time', type: FieldType.time, values: [1000] },
+        { name: 'Temp', type: FieldType.number, values: [1] },
+      ],
+    });
+    await expect(transformDataFrame([cfg], [seriesA])).toEmitValuesWith((received) => {
+      const result = received[0];
+      expect(seriesA).toBe(result[0]);
+    });
   });
 
   it('combine two series into one', async () => {
@@ -570,18 +584,16 @@ describe('Merge multiple to single', () => {
   });
 });
 
-const createField = (name: string, type: FieldType, values: any[], config = {}, display?: DisplayProcessor): Field => {
-  return { name, type, values: new ArrayVector(values), config, labels: undefined, display };
+const createField = (
+  name: string,
+  type: FieldType,
+  values: unknown[],
+  config = {},
+  display?: DisplayProcessor
+): Field => {
+  return { name, type, values: values, config, labels: undefined, display };
 };
 
 const unwrap = (fields: Field[]): Field[] => {
-  return fields.map((field) =>
-    createField(
-      field.name,
-      field.type,
-      field.values.toArray().map((value: any) => value),
-      field.config,
-      field.display
-    )
-  );
+  return fields.map((field) => createField(field.name, field.type, field.values, field.config, field.display));
 };

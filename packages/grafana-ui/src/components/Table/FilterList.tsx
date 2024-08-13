@@ -1,37 +1,58 @@
-import React, { FC, useCallback, useMemo, useState } from 'react';
+import { css, cx } from '@emotion/css';
+import React, { useCallback, useMemo, useState } from 'react';
 import { FixedSizeList as List } from 'react-window';
-import { css } from 'emotion';
-import { GrafanaTheme, SelectableValue } from '@grafana/data';
 
-import { stylesFactory, useTheme } from '../../themes';
-import { Checkbox, Input, Label, VerticalGroup } from '..';
+import { GrafanaTheme2, SelectableValue } from '@grafana/data';
+
+import { Checkbox, FilterInput, Label, VerticalGroup } from '..';
+import { useStyles2, useTheme2 } from '../../themes';
 
 interface Props {
   values: SelectableValue[];
   options: SelectableValue[];
   onChange: (options: SelectableValue[]) => void;
+  caseSensitive?: boolean;
 }
 
 const ITEM_HEIGHT = 28;
 const MIN_HEIGHT = ITEM_HEIGHT * 5;
 
-export const FilterList: FC<Props> = ({ options, values, onChange }) => {
-  const theme = useTheme();
-  const styles = getStyles(theme);
+export const FilterList = ({ options, values, caseSensitive, onChange }: Props) => {
   const [searchFilter, setSearchFilter] = useState('');
-  const items = useMemo(() => options.filter((option) => option.label?.indexOf(searchFilter) !== -1), [
-    options,
-    searchFilter,
-  ]);
-  const gutter = parseInt(theme.spacing.sm, 10);
-  const height = useMemo(() => Math.min(items.length * ITEM_HEIGHT, MIN_HEIGHT) + gutter, [gutter, items.length]);
-
-  const onInputChange = useCallback(
-    (event: React.FormEvent<HTMLInputElement>) => {
-      setSearchFilter(event.currentTarget.value);
-    },
-    [setSearchFilter]
+  const regex = useMemo(() => new RegExp(searchFilter, caseSensitive ? undefined : 'i'), [searchFilter, caseSensitive]);
+  const items = useMemo(
+    () =>
+      options.filter((option) => {
+        if (option.label === undefined) {
+          return false;
+        }
+        return regex.test(option.label);
+      }),
+    [options, regex]
   );
+  const selectedItems = useMemo(() => items.filter((item) => values.includes(item)), [items, values]);
+
+  const selectCheckValue = useMemo(() => items.length === selectedItems.length, [items, selectedItems]);
+  const selectCheckIndeterminate = useMemo(
+    () => selectedItems.length > 0 && items.length > selectedItems.length,
+    [items, selectedItems]
+  );
+  const selectCheckLabel = useMemo(
+    () => (selectedItems.length ? `${selectedItems.length} selected` : `Select all`),
+    [selectedItems]
+  );
+  const selectCheckDescription = useMemo(
+    () =>
+      items.length !== selectedItems.length
+        ? 'Add all displayed values to the filter'
+        : 'Remove all displayed values from the filter',
+    [items, selectedItems]
+  );
+
+  const styles = useStyles2(getStyles);
+  const theme = useTheme2();
+  const gutter = theme.spacing.gridSize;
+  const height = useMemo(() => Math.min(items.length * ITEM_HEIGHT, MIN_HEIGHT) + gutter, [gutter, items.length]);
 
   const onCheckedChanged = useCallback(
     (option: SelectableValue) => (event: React.FormEvent<HTMLInputElement>) => {
@@ -44,14 +65,19 @@ export const FilterList: FC<Props> = ({ options, values, onChange }) => {
     [onChange, values]
   );
 
+  const onSelectChanged = useCallback(() => {
+    if (items.length === selectedItems.length) {
+      const newValues = values.filter((item) => !items.includes(item));
+      onChange(newValues);
+    } else {
+      const newValues = [...new Set([...values, ...items])];
+      onChange(newValues);
+    }
+  }, [onChange, values, items, selectedItems]);
+
   return (
     <VerticalGroup spacing="md">
-      <Input
-        placeholder="filter values"
-        className={styles.filterListInput}
-        onChange={onInputChange}
-        value={searchFilter}
-      />
+      <FilterInput placeholder="Filter values" onChange={setSearchFilter} value={searchFilter} />
       {!items.length && <Label>No values</Label>}
       {items.length && (
         <List
@@ -74,26 +100,44 @@ export const FilterList: FC<Props> = ({ options, values, onChange }) => {
           }}
         </List>
       )}
+      {items.length && (
+        <VerticalGroup spacing="xs">
+          <div className={cx(styles.selectDivider)} />
+          <div className={cx(styles.filterListRow)}>
+            <Checkbox
+              value={selectCheckValue}
+              indeterminate={selectCheckIndeterminate}
+              label={selectCheckLabel}
+              description={selectCheckDescription}
+              onChange={onSelectChanged}
+            />
+          </div>
+        </VerticalGroup>
+      )}
     </VerticalGroup>
   );
 };
 
-const getStyles = stylesFactory((theme: GrafanaTheme) => ({
-  filterList: css`
-    label: filterList;
-  `,
-  filterListRow: css`
-    label: filterListRow;
-    cursor: pointer;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    padding: ${theme.spacing.xs};
-    :hover {
-      background-color: ${theme.colors.bg3};
-    }
-  `,
-  filterListInput: css`
-    label: filterListInput;
-  `,
-}));
+const getStyles = (theme: GrafanaTheme2) => ({
+  filterList: css({
+    label: 'filterList',
+  }),
+  filterListRow: css({
+    label: 'filterListRow',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    padding: theme.spacing(0.5),
+
+    ':hover': {
+      backgroundColor: theme.colors.action.hover,
+    },
+  }),
+  selectDivider: css({
+    label: 'selectDivider',
+    width: '100%',
+    borderTop: `1px solid ${theme.colors.border.medium}`,
+    padding: theme.spacing(0.5, 2),
+  }),
+});

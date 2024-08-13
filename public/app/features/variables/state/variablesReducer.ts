@@ -1,12 +1,10 @@
 import { createAction } from '@reduxjs/toolkit';
-import { variableAdapters } from '../adapters';
-import { sharedReducer } from './sharedReducer';
-import { VariableModel } from '../types';
 import { AnyAction } from 'redux';
 
-export interface VariablesState extends Record<string, VariableModel> {}
+import { variableAdapters } from '../adapters';
 
-export const initialVariablesState: VariablesState = {};
+import { sharedReducer } from './sharedReducer';
+import { initialVariablesState, VariablesState } from './types';
 
 export const cleanVariables = createAction<undefined>('templating/cleanVariables');
 
@@ -17,10 +15,10 @@ export const variablesReducer = (state: VariablesState = initialVariablesState, 
       return initialVariablesState;
     }
 
-    const variables = globalVariables.reduce((allVariables, state) => {
+    const variables = globalVariables.reduce<typeof state>((allVariables, state) => {
       allVariables[state.id] = state;
       return allVariables;
-    }, {} as Record<string, VariableModel>);
+    }, {});
 
     return variables;
   }

@@ -1,16 +1,18 @@
 // Libraries
-import _ from 'lodash';
+import { toString, toNumber as _toNumber, isEmpty, isBoolean, isArray, join } from 'lodash';
 
 // Types
-import { Field, FieldType } from '../types/dataFrame';
-import { GrafanaTheme } from '../types/theme';
-import { DisplayProcessor, DisplayValue } from '../types/displayValue';
-import { getValueFormat } from '../valueFormats/valueFormats';
-import { getMappedValue } from '../utils/valueMappings';
-import { dateTime } from '../datetime';
+import { getFieldTypeFromValue } from '../dataframe/processDataFrame';
+import { toUtc, dateTimeParse } from '../datetime';
+import { GrafanaTheme2 } from '../themes/types';
 import { KeyValue, TimeZone } from '../types';
+import { Field, FieldType } from '../types/dataFrame';
+import { DecimalCount, DisplayProcessor, DisplayValue } from '../types/displayValue';
+import { anyToNumber } from '../utils/anyToNumber';
+import { getValueMappingResult } from '../utils/valueMappings';
+import { FormattedValue, getValueFormat, isBooleanUnit } from '../valueFormats/valueFormats';
+
 import { getScaleCalculator } from './scale';
-import { getTestTheme } from '../utils/testdata/testTheme';
 
 interface DisplayProcessorOptions {
   field: Partial<Field>;
@@ -21,7 +23,7 @@ interface DisplayProcessorOptions {
   /**
    * Will pick 'dark' if not defined
    */
-  theme?: GrafanaTheme;
+  theme: GrafanaTheme2;
 }
 
 // Reasonable units for time
@@ -36,103 +38,197 @@ const timeFormats: KeyValue<boolean> = {
 };
 
 export function getDisplayProcessor(options?: DisplayProcessorOptions): DisplayProcessor {
-  if (!options || _.isEmpty(options) || !options.field) {
+  if (!options || isEmpty(options) || !options.field) {
     return toStringProcessor;
   }
 
-  const { field } = options;
+  const field = options.field as Field;
   const config = field.config ?? {};
-
-  // Theme should be required or we need access to default theme instance from here
-  const theme = options.theme ?? getTestTheme();
+  const { palette } = options.theme.visualization;
 
   let unit = config.unit;
   let hasDateUnit = unit && (timeFormats[unit] || unit.startsWith('time:'));
+  let showMs = false;
 
   if (field.type === FieldType.time && !hasDateUnit) {
     unit = `dateTimeAsSystem`;
     hasDateUnit = true;
+    if (field.values && field.values.length > 1) {
+      let start = field.values[0];
+      let end = field.values[field.values.length - 1];
+      if (typeof start === 'string') {
+        start = dateTimeParse(start).unix();
+        end = dateTimeParse(end).unix();
+      } else {
+        start /= 1e3;
+        end /= 1e3;
+      }
+      showMs = Math.abs(end - start) < 60; //show ms when minute or less
+    }
+  } else if (field.type === FieldType.boolean) {
+    if (!isBooleanUnit(unit)) {
+      unit = 'bool';
+    }
+  } else if (!unit && field.type === FieldType.string) {
+    unit = 'string';
   }
 
-  const formatFunc = getValueFormat(unit || 'none');
-  const scaleFunc = getScaleCalculator(field as Field, theme);
+  const hasCurrencyUnit = unit?.startsWith('currency');
+  const hasBoolUnit = isBooleanUnit(unit);
+  const isNumType = field.type === FieldType.number;
+  const isLocaleFormat = unit === 'locale';
+  const canTrimTrailingDecimalZeros =
+    !hasDateUnit && !hasCurrencyUnit && !hasBoolUnit && !isLocaleFormat && isNumType && config.decimals == null;
 
-  return (value: any) => {
+  const formatFunc = getValueFormat(unit || 'none', config.unitScale);
+  const scaleFunc = getScaleCalculator(field, options.theme);
+
+  return (value: unknown, adjacentDecimals?: DecimalCount) => {
     const { mappings } = config;
     const isStringUnit = unit === 'string';
 
     if (hasDateUnit && typeof value === 'string') {
-      value = dateTime(value).valueOf();
+      value = toUtc(value).valueOf();
     }
 
-    let text = _.toString(value);
-    let numeric = isStringUnit ? NaN : toNumber(value);
-    let prefix: string | undefined = undefined;
-    let suffix: string | undefined = undefined;
-    let shouldFormat = true;
+    let numeric = isStringUnit ? NaN : anyToNumber(value);
+    let text: string | undefined;
+    let prefix: string | undefined;
+    let suffix: string | undefined;
+    let color: string | undefined;
+    let icon: string | undefined;
+    let percent: number | undefined;
 
     if (mappings && mappings.length > 0) {
-      const mappedValue = getMappedValue(mappings, value);
+      const mappingResult = getValueMappingResult(mappings, value);
 
-      if (mappedValue) {
-        text = mappedValue.text;
-        const v = isStringUnit ? NaN : toNumber(text);
-
-        if (!isNaN(v)) {
-          numeric = v;
+      if (mappingResult) {
+        if (mappingResult.text != null) {
+          text = mappingResult.text;
         }
 
-        shouldFormat = false;
+        if (mappingResult.color != null) {
+          color = options.theme.visualization.getColorByName(mappingResult.color);
+        }
+
+        if (mappingResult.icon != null) {
+          icon = mappingResult.icon;
+        }
+      }
+    } else if (field.type === FieldType.enum) {
+      // Apply enum display handling if field is enum type and no mappings are specified
+      if (value == null) {
+        return {
+          text: '',
+          numeric: NaN,
+        };
+      }
+
+      const enumIndex = +value;
+      if (config && config.type && config.type.enum) {
+        const { text: enumText, color: enumColor } = config.type.enum;
+
+        text = enumText ? enumText[enumIndex] : `${value}`;
+        // If no color specified in enum field config we will fallback to iterating through the theme palette
+        color = enumColor ? enumColor[enumIndex] : undefined;
+
+        if (color == null) {
+          const namedColor = palette[enumIndex % palette.length];
+          color = options.theme.visualization.getColorByName(namedColor);
+        }
       }
     }
 
-    if (!isNaN(numeric)) {
-      if (shouldFormat && !_.isBoolean(value)) {
-        const v = formatFunc(numeric, config.decimals, null, options.timeZone);
+    if (!Number.isNaN(numeric)) {
+      if (text == null && !isBoolean(value)) {
+        let v: FormattedValue;
+
+        if (canTrimTrailingDecimalZeros && adjacentDecimals != null) {
+          v = formatFunc(numeric, adjacentDecimals, null, options.timeZone, showMs);
+
+          // if no explicit decimals config, we strip trailing zeros e.g. 60.00 -> 60
+          // this is needed because we may have determined the minimum determined `adjacentDecimals` for y tick increments based on
+          // e.g. 'seconds' field unit (0.15s, 0.20s, 0.25s), but then formatFunc decided to return milli or nanos (150, 200, 250)
+          // so we end up with excess precision: 150.00, 200.00, 250.00
+          v.text = +v.text + '';
+        } else {
+          v = formatFunc(numeric, config.decimals, null, options.timeZone, showMs);
+        }
+
         text = v.text;
         suffix = v.suffix;
         prefix = v.prefix;
       }
 
       // Return the value along with scale info
-      if (text) {
-        return { text, numeric, prefix, suffix, ...scaleFunc(numeric) };
+      if (color == null) {
+        const scaleResult = scaleFunc(numeric);
+        color = scaleResult.color;
+        percent = scaleResult.percent;
       }
     }
 
-    if (!text) {
-      if (config.noValue) {
-        text = config.noValue;
-      } else {
-        text = ''; // No data?
+    if (text == null && isArray(value)) {
+      text = join(value, ', ');
+    }
+
+    if (text == null) {
+      text = toString(value);
+      if (!text) {
+        if (config.noValue) {
+          text = config.noValue;
+        } else {
+          text = ''; // No data?
+        }
       }
     }
 
-    return { text, numeric, prefix, suffix, ...scaleFunc(-Infinity) };
+    if (!color) {
+      const scaleResult = scaleFunc(-Infinity);
+      color = scaleResult.color;
+      percent = scaleResult.percent;
+    }
+
+    const display: DisplayValue = {
+      text,
+      numeric,
+      prefix,
+      suffix,
+      color,
+    };
+
+    if (icon != null) {
+      display.icon = icon;
+    }
+
+    if (percent != null) {
+      display.percent = percent;
+    }
+
+    return display;
   };
 }
 
-/** Will return any value as a number or NaN */
-function toNumber(value: any): number {
-  if (typeof value === 'number') {
-    return value;
-  }
-  if (value === '' || value === null || value === undefined || Array.isArray(value)) {
-    return NaN; // lodash calls them 0
-  }
-  if (typeof value === 'boolean') {
-    return value ? 1 : 0;
-  }
-  return _.toNumber(value);
-}
-
-function toStringProcessor(value: any): DisplayValue {
-  return { text: _.toString(value), numeric: toNumber(value) };
+function toStringProcessor(value: unknown): DisplayValue {
+  return { text: toString(value), numeric: anyToNumber(value) };
 }
 
 export function getRawDisplayProcessor(): DisplayProcessor {
-  return (value: any) => ({
-    text: `${value}`,
-    numeric: (null as unknown) as number,
+  return (value: unknown) => ({
+    text: getFieldTypeFromValue(value) === 'other' ? `${JSON.stringify(value, getCircularReplacer())}` : `${value}`,
+    numeric: null as unknown as number,
   });
 }
+
+const getCircularReplacer = () => {
+  const seen = new WeakSet();
+  return (_key: string, value: object | null) => {
+    if (typeof value === 'object' && value !== null) {
+      if (seen.has(value)) {
+        return;
+      }
+      seen.add(value);
+    }
+    return value;
+  };
+};

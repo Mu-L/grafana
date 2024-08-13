@@ -1,10 +1,11 @@
-import { css } from 'emotion';
-import React, { FunctionComponent } from 'react';
-import { IconButton } from './IconButton';
+import { css } from '@emotion/css';
+import React from 'react';
+
+import { Button } from '@grafana/ui';
 
 interface Props {
   index: number;
-  elements: any[];
+  elements: unknown[];
   onAdd: () => void;
   onRemove: () => void;
 }
@@ -13,16 +14,20 @@ interface Props {
  * A component used to show add & remove buttons for mutable lists of values. Wether to show or not the add or the remove buttons
  * depends on the `index` and `elements` props. This enforces a consistent experience whenever this pattern is used.
  */
-export const AddRemove: FunctionComponent<Props> = ({ index, onAdd, onRemove, elements }) => {
+export const AddRemove = ({ index, onAdd, onRemove, elements }: Props) => {
   return (
     <div
       className={css`
         display: flex;
       `}
     >
-      {index === 0 && <IconButton iconName="plus" onClick={onAdd} label="add" />}
+      {index === 0 && (
+        <Button variant="secondary" fill="text" icon="plus" onClick={onAdd} tooltip="Add" aria-label="Add" />
+      )}
 
-      {elements.length >= 2 && <IconButton iconName="minus" onClick={onRemove} label="remove" />}
+      {elements.length >= 2 && (
+        <Button variant="secondary" fill="text" icon="minus" onClick={onRemove} tooltip="Remove" aria-label="Remove" />
+      )}
     </div>
   );
 };

@@ -1,8 +1,11 @@
-import { getCategories } from './categories';
+import { clamp } from 'lodash';
+
+import { TimeZone } from '../types';
 import { DecimalCount } from '../types/displayValue';
+
+import { getCategories } from './categories';
 import { toDateTimeValueFormatter } from './dateTimeFormatters';
 import { getOffsetFromSIPrefix, SIPrefix, currency } from './symbolFormatters';
-import { TimeZone } from '../types';
 
 export interface FormattedValue {
   text: string;
@@ -18,7 +21,8 @@ export type ValueFormatter = (
   value: number,
   decimals?: DecimalCount,
   scaledDecimals?: DecimalCount,
-  timeZone?: TimeZone
+  timeZone?: TimeZone,
+  showMs?: boolean
 ) => FormattedValue;
 
 export interface ValueFormat {
@@ -39,6 +43,7 @@ export interface ValueFormatterIndex {
 // Globals & formats cache
 let categories: ValueFormatCategory[] = [];
 const index: ValueFormatterIndex = {};
+const indexScalable: ValueFormatterIndex = {};
 let hasBuiltIndex = false;
 
 export function toFixed(value: number, decimals?: DecimalCount): string {
@@ -54,6 +59,10 @@ export function toFixed(value: number, decimals?: DecimalCount): string {
     decimals = getDecimalsForValue(value);
   }
 
+  if (value === 0) {
+    return value.toFixed(decimals);
+  }
+
   const factor = decimals ? Math.pow(10, Math.max(0, decimals)) : 1;
   const formatted = String(Math.round(value * factor) / factor);
 
@@ -65,17 +74,18 @@ export function toFixed(value: number, decimals?: DecimalCount): string {
   const decimalPos = formatted.indexOf('.');
   const precision = decimalPos === -1 ? 0 : formatted.length - decimalPos - 1;
   if (precision < decimals) {
-    return (precision ? formatted : formatted + '.') + String(factor).substr(1, decimals - precision);
+    return (precision ? formatted : formatted + '.') + String(factor).slice(1, decimals - precision + 1);
   }
 
   return formatted;
 }
 
 function getDecimalsForValue(value: number): number {
-  const log10 = Math.floor(Math.log(Math.abs(value)) / Math.LN10);
+  const absValue = Math.abs(value);
+  const log10 = Math.floor(Math.log(absValue) / Math.LN10);
   let dec = -log10 + 1;
   const magn = Math.pow(10, -dec);
-  const norm = value / magn; // norm is between 1.0 and 10.0
+  const norm = absValue / magn; // norm is between 1.0 and 10.0
 
   // special case for 2.5, requires an extra decimal
   if (norm > 2.25) {
@@ -93,8 +103,25 @@ function getDecimalsForValue(value: number): number {
 export function toFixedScaled(value: number, decimals: DecimalCount, ext?: string): FormattedValue {
   return {
     text: toFixed(value, decimals),
-    suffix: ext,
+    suffix: appendPluralIf(ext, Math.abs(value) > 1),
   };
+}
+
+function appendPluralIf(ext: string | undefined, condition: boolean): string | undefined {
+  if (!condition) {
+    return ext;
+  }
+
+  switch (ext) {
+    case ' min':
+    case ' hour':
+    case ' day':
+    case ' week':
+    case ' year':
+      return `${ext}s`;
+    default:
+      return ext;
+  }
 }
 
 export function toFixedUnit(unit: string, asPrefix?: boolean): ValueFormatter {
@@ -113,31 +140,35 @@ export function toFixedUnit(unit: string, asPrefix?: boolean): ValueFormatter {
   };
 }
 
-// Formatter which scales the unit string geometrically according to the given
-// numeric factor. Repeatedly scales the value down by the factor until it is
-// less than the factor in magnitude, or the end of the array is reached.
-export function scaledUnits(factor: number, extArray: string[]): ValueFormatter {
-  return (size: number, decimals?: DecimalCount, scaledDecimals?: DecimalCount) => {
-    if (size === null) {
+export function isBooleanUnit(unit?: string) {
+  return unit && unit.startsWith('bool');
+}
+
+export function booleanValueFormatter(t: string, f: string): ValueFormatter {
+  return (value) => {
+    return { text: value ? t : f };
+  };
+}
+
+const logb = (b: number, x: number) => Math.log10(x) / Math.log10(b);
+
+export function scaledUnits(factor: number, extArray: string[], offset = 0): ValueFormatter {
+  return (size: number, decimals?: DecimalCount) => {
+    if (size === null || size === undefined) {
       return { text: '' };
     }
+
     if (size === Number.NEGATIVE_INFINITY || size === Number.POSITIVE_INFINITY || isNaN(size)) {
       return { text: size.toLocaleString() };
     }
 
-    let steps = 0;
-    const limit = extArray.length;
+    const siIndex = size === 0 ? 0 : Math.floor(logb(factor, Math.abs(size)));
+    const suffix = extArray[clamp(offset + siIndex, 0, extArray.length - 1)];
 
-    while (Math.abs(size) >= factor) {
-      steps++;
-      size /= factor;
-
-      if (steps >= limit) {
-        return { text: 'NA' };
-      }
-    }
-
-    return { text: toFixed(size, decimals), suffix: extArray[steps] };
+    return {
+      text: toFixed(size / factor ** clamp(siIndex, -offset, extArray.length - offset - 1), decimals),
+      suffix,
+    };
   };
 }
 
@@ -146,7 +177,7 @@ export function locale(value: number, decimals: DecimalCount): FormattedValue {
     return { text: '' };
   }
   return {
-    text: value.toLocaleString(undefined, { maximumFractionDigits: decimals as number }),
+    text: value.toLocaleString(undefined, { maximumFractionDigits: decimals ?? undefined }),
   };
 }
 
@@ -169,6 +200,7 @@ export function stringFormater(value: number): FormattedValue {
 
 function buildFormats() {
   categories = getCategories();
+  const nonScalableCategories = getCategories(false);
 
   for (const cat of categories) {
     for (const format of cat.formats) {
@@ -176,18 +208,28 @@ function buildFormats() {
     }
   }
 
+  for (const cat of nonScalableCategories) {
+    for (const format of cat.formats) {
+      indexScalable[format.id] = format.fn;
+    }
+  }
+
   // Resolve units pointing to old IDs
   [{ from: 'farenheit', to: 'fahrenheit' }].forEach((alias) => {
-    const f = index[alias.to];
-    if (f) {
-      index[alias.from] = f;
+    const f0 = index[alias.to];
+    if (f0) {
+      index[alias.from] = f0;
+    }
+    const f1 = indexScalable[alias.to];
+    if (f1) {
+      indexScalable[alias.from] = f1;
     }
   });
 
   hasBuiltIndex = true;
 }
 
-export function getValueFormat(id?: string | null): ValueFormatter {
+export function getValueFormat(id?: string | null, scalable = true): ValueFormatter {
   if (!id) {
     return toFixedUnit('');
   }
@@ -196,10 +238,10 @@ export function getValueFormat(id?: string | null): ValueFormatter {
     buildFormats();
   }
 
-  const fmt = index[id];
+  const fmt = scalable ? index[id] : indexScalable[id];
 
   if (!fmt && id) {
-    const idx = id.indexOf(':');
+    let idx = id.indexOf(':');
 
     if (idx > 0) {
       const key = id.substring(0, idx);
@@ -230,6 +272,16 @@ export function getValueFormat(id?: string | null): ValueFormatter {
       if (key === 'currency') {
         return currency(sub);
       }
+
+      if (key === 'bool') {
+        idx = sub.indexOf('/');
+        if (idx >= 0) {
+          const t = sub.substring(0, idx);
+          const f = sub.substring(idx + 1);
+          return booleanValueFormatter(t, f);
+        }
+        return booleanValueFormatter(sub, '-');
+      }
     }
 
     return toFixedUnit(id);
@@ -238,11 +290,14 @@ export function getValueFormat(id?: string | null): ValueFormatter {
   return fmt;
 }
 
-export function getValueFormatterIndex(): ValueFormatterIndex {
+export function getValueFormatterIndex(scalable = true): ValueFormatterIndex {
   if (!hasBuiltIndex) {
     buildFormats();
   }
 
+  if (scalable) {
+    return indexScalable;
+  }
   return index;
 }
 

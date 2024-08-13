@@ -1,16 +1,22 @@
 import React, { PureComponent } from 'react';
-import { hot } from 'react-hot-loader';
-import { connect } from 'react-redux';
-import { NavModel } from '@grafana/data';
-import { Alert, LegacyForms } from '@grafana/ui';
-const { FormField } = LegacyForms;
-import { getNavModel } from 'app/core/selectors/navModel';
-import config from 'app/core/config';
-import Page from 'app/core/components/Page/Page';
-import { LdapConnectionStatus } from './LdapConnectionStatus';
-import { LdapSyncInfo } from './LdapSyncInfo';
-import { LdapUserInfo } from './LdapUserInfo';
-import { AppNotificationSeverity, LdapError, LdapUser, StoreState, SyncInfo, LdapConnectionInfo } from 'app/types';
+import { connect, ConnectedProps } from 'react-redux';
+
+import { NavModelItem } from '@grafana/data';
+import { featureEnabled } from '@grafana/runtime';
+import { Alert, Button, Field, Form, HorizontalGroup, Input } from '@grafana/ui';
+import { Page } from 'app/core/components/Page/Page';
+import { contextSrv } from 'app/core/core';
+import { GrafanaRouteComponentProps } from 'app/core/navigation/types';
+import {
+  AppNotificationSeverity,
+  LdapError,
+  LdapUser,
+  StoreState,
+  SyncInfo,
+  LdapConnectionInfo,
+  AccessControlAction,
+} from 'app/types';
+
 import {
   loadLdapState,
   loadLdapSyncStatus,
@@ -18,26 +24,33 @@ import {
   clearUserError,
   clearUserMappingInfo,
 } from '../state/actions';
-import { GrafanaRouteComponentProps } from 'app/core/navigation/types';
 
-interface Props extends GrafanaRouteComponentProps<{}, { username: string }> {
-  navModel: NavModel;
+import { LdapConnectionStatus } from './LdapConnectionStatus';
+import { LdapSyncInfo } from './LdapSyncInfo';
+import { LdapUserInfo } from './LdapUserInfo';
+
+interface OwnProps extends GrafanaRouteComponentProps<{}, { username?: string }> {
   ldapConnectionInfo: LdapConnectionInfo;
-  ldapUser: LdapUser;
-  ldapSyncInfo: SyncInfo;
-  ldapError: LdapError;
+  ldapUser?: LdapUser;
+  ldapSyncInfo?: SyncInfo;
+  ldapError?: LdapError;
   userError?: LdapError;
-
-  loadLdapState: typeof loadLdapState;
-  loadLdapSyncStatus: typeof loadLdapSyncStatus;
-  loadUserMapping: typeof loadUserMapping;
-  clearUserError: typeof clearUserError;
-  clearUserMappingInfo: typeof clearUserMappingInfo;
 }
 
 interface State {
   isLoading: boolean;
 }
+
+interface FormModel {
+  username: string;
+}
+
+const pageNav: NavModelItem = {
+  text: 'LDAP',
+  subTitle: `Verify your LDAP and user mapping configuration.`,
+  icon: 'book',
+  id: 'LDAP',
+};
 
 export class LdapPage extends PureComponent<Props, State> {
   state = {
@@ -66,9 +79,7 @@ export class LdapPage extends PureComponent<Props, State> {
     return await loadUserMapping(username);
   }
 
-  search = (event: any) => {
-    event.preventDefault();
-    const username = event.target.elements['username'].value;
+  search = (username: string) => {
     if (username) {
       this.fetchUserMapping(username);
     }
@@ -79,54 +90,56 @@ export class LdapPage extends PureComponent<Props, State> {
   };
 
   render() {
-    const { ldapUser, userError, ldapError, ldapSyncInfo, ldapConnectionInfo, navModel, queryParams } = this.props;
+    const { ldapUser, userError, ldapError, ldapSyncInfo, ldapConnectionInfo, queryParams } = this.props;
     const { isLoading } = this.state;
+    const canReadLDAPUser = contextSrv.hasPermission(AccessControlAction.LDAPUsersRead);
 
     return (
-      <Page navModel={navModel}>
+      <Page navId="authentication" pageNav={pageNav}>
         <Page.Contents isLoading={isLoading}>
           <>
             {ldapError && ldapError.title && (
-              <div className="gf-form-group">
-                <Alert title={ldapError.title} severity={AppNotificationSeverity.Error}>
-                  {ldapError.body}
-                </Alert>
-              </div>
+              <Alert title={ldapError.title} severity={AppNotificationSeverity.Error}>
+                {ldapError.body}
+              </Alert>
             )}
 
             <LdapConnectionStatus ldapConnectionInfo={ldapConnectionInfo} />
 
-            {config.licenseInfo.hasLicense && ldapSyncInfo && <LdapSyncInfo ldapSyncInfo={ldapSyncInfo} />}
+            {featureEnabled('ldapsync') && ldapSyncInfo && <LdapSyncInfo ldapSyncInfo={ldapSyncInfo} />}
 
-            <h3 className="page-heading">Test user mapping</h3>
-            <div className="gf-form-group">
-              <form onSubmit={this.search} className="gf-form-inline">
-                <FormField
-                  label="Username"
-                  labelWidth={8}
-                  inputWidth={30}
-                  type="text"
-                  id="username"
-                  name="username"
-                  defaultValue={queryParams.username}
-                />
-                <button type="submit" className="btn btn-primary">
-                  Run
-                </button>
-              </form>
-            </div>
-            {userError && userError.title && (
-              <div className="gf-form-group">
-                <Alert
-                  title={userError.title}
-                  severity={AppNotificationSeverity.Error}
-                  onRemove={this.onClearUserError}
-                >
-                  {userError.body}
-                </Alert>
-              </div>
+            {canReadLDAPUser && (
+              <>
+                <h3>Test user mapping</h3>
+                <Form onSubmit={(data: FormModel) => this.search(data.username)}>
+                  {({ register }) => (
+                    <HorizontalGroup>
+                      <Field label="Username">
+                        <Input
+                          {...register('username', { required: true })}
+                          id="username"
+                          type="text"
+                          defaultValue={queryParams.username}
+                        />
+                      </Field>
+                      <Button variant="primary" type="submit">
+                        Run
+                      </Button>
+                    </HorizontalGroup>
+                  )}
+                </Form>
+                {userError && userError.title && (
+                  <Alert
+                    title={userError.title}
+                    severity={AppNotificationSeverity.Error}
+                    onRemove={this.onClearUserError}
+                  >
+                    {userError.body}
+                  </Alert>
+                )}
+                {ldapUser && <LdapUserInfo ldapUser={ldapUser} showAttributeMapping={true} />}
+              </>
             )}
-            {ldapUser && <LdapUserInfo ldapUser={ldapUser} showAttributeMapping={true} />}
           </>
         </Page.Contents>
       </Page>
@@ -135,7 +148,6 @@ export class LdapPage extends PureComponent<Props, State> {
 }
 
 const mapStateToProps = (state: StoreState) => ({
-  navModel: getNavModel(state.navIndex, 'ldap'),
   ldapConnectionInfo: state.ldap.connectionInfo,
   ldapUser: state.ldap.user,
   ldapSyncInfo: state.ldap.syncInfo,
@@ -151,4 +163,7 @@ const mapDispatchToProps = {
   clearUserMappingInfo,
 };
 
-export default hot(module)(connect(mapStateToProps, mapDispatchToProps)(LdapPage));
+const connector = connect(mapStateToProps, mapDispatchToProps);
+type Props = OwnProps & ConnectedProps<typeof connector>;
+
+export default connector(LdapPage);

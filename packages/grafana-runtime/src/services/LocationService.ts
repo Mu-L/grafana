@@ -1,11 +1,14 @@
-import { deprecationWarning, UrlQueryMap, urlUtil } from '@grafana/data';
 import * as H from 'history';
-import { LocationUpdate } from './LocationSrv';
-import { createLogger } from '@grafana/ui';
+
+import { deprecationWarning, UrlQueryMap, urlUtil } from '@grafana/data';
+import { attachDebugger, createLogger } from '@grafana/ui';
+
 import { config } from '../config';
 
+import { LocationUpdate } from './LocationSrv';
+
 /**
- * @alpha
+ * @public
  * A wrapper to help work with browser location and history
  */
 export interface LocationService {
@@ -31,27 +34,10 @@ export class HistoryWrapper implements LocationService {
   constructor(history?: H.History) {
     // If no history passed create an in memory one if being called from test
     this.history =
-      history || process.env.NODE_ENV === 'test'
+      history ||
+      (process.env.NODE_ENV === 'test'
         ? H.createMemoryHistory({ initialEntries: ['/'] })
-        : H.createBrowserHistory({ basename: config.appSubUrl ?? '/' });
-
-    // For debugging purposes the location service is attached to global _debug variable
-    if (process.env.NODE_ENV !== 'production') {
-      // @ts-ignore
-      let debugGlobal = window['_debug'];
-      if (debugGlobal) {
-        debugGlobal = {
-          ...debugGlobal,
-          location: this,
-        };
-      } else {
-        debugGlobal = {
-          location: this,
-        };
-      }
-      // @ts-ignore
-      window['_debug'] = debugGlobal;
-    }
+        : H.createBrowserHistory({ basename: config.appSubUrl ?? '/' }));
 
     this.partial = this.partial.bind(this);
     this.push = this.push.bind(this);
@@ -85,9 +71,9 @@ export class HistoryWrapper implements LocationService {
     const updatedUrl = urlUtil.renderUrl(currentLocation.pathname, newQuery);
 
     if (replace) {
-      this.history.replace(updatedUrl);
+      this.history.replace(updatedUrl, this.history.location.state);
     } else {
-      this.history.push(updatedUrl);
+      this.history.push(updatedUrl, this.history.location.state);
     }
   }
 
@@ -137,7 +123,7 @@ export class HistoryWrapper implements LocationService {
 }
 
 /**
- * @alpha
+ * @public
  * Parses a location search string to an object
  * */
 export function locationSearchToObject(search: string | number): UrlQueryMap {
@@ -154,12 +140,13 @@ export function locationSearchToObject(search: string | number): UrlQueryMap {
 }
 
 /**
- * @alpha
+ * @public
  */
 export let locationService: LocationService = new HistoryWrapper();
 
-/** @internal
+/**
  * Used for tests only
+ * @internal
  */
 export const setLocationService = (location: LocationService) => {
   if (process.env.NODE_ENV !== 'test') {
@@ -168,5 +155,10 @@ export const setLocationService = (location: LocationService) => {
   locationService = location;
 };
 
+const navigationLog = createLogger('Router');
+
 /** @internal */
-export const navigationLogger = createLogger('Router');
+export const navigationLogger = navigationLog.logger;
+
+// For debugging purposes the location service is attached to global _debug variable
+attachDebugger('location', locationService, navigationLog);

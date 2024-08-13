@@ -3,65 +3,88 @@ package cloudwatch
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
-	"github.com/grafana/grafana/pkg/components/simplejson"
-	"github.com/grafana/grafana/pkg/plugins"
-	"github.com/grafana/grafana/pkg/util/errutil"
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/data"
+	"github.com/grafana/grafana/pkg/tsdb/cloudwatch/kinds/dataquery"
 )
 
-func (e *cloudWatchExecutor) executeAnnotationQuery(ctx context.Context, queryContext plugins.DataQuery) (
-	plugins.DataResponse, error) {
-	result := plugins.DataResponse{
-		Results: make(map[string]plugins.DataQueryResult),
-	}
-	firstQuery := queryContext.Queries[0]
-	queryResult := plugins.DataQueryResult{Meta: simplejson.New(), RefID: firstQuery.RefID}
+type annotationEvent struct {
+	Title string
+	Time  time.Time
+	Tags  string
+	Text  string
+}
 
-	parameters := firstQuery.Model
-	usePrefixMatch := parameters.Get("prefixMatching").MustBool(false)
-	region := parameters.Get("region").MustString("")
-	namespace := parameters.Get("namespace").MustString("")
-	metricName := parameters.Get("metricName").MustString("")
-	dimensions := parameters.Get("dimensions").MustMap()
-	statistics, err := parseStatistics(parameters)
-	if err != nil {
-		return plugins.DataResponse{}, err
+func (e *cloudWatchExecutor) executeAnnotationQuery(ctx context.Context, pluginCtx backend.PluginContext, model DataQueryJson, query backend.DataQuery) (*backend.QueryDataResponse, error) {
+	result := backend.NewQueryDataResponse()
+	statistic := ""
+
+	if model.Statistic != nil {
+		statistic = *model.Statistic
 	}
-	period := int64(parameters.Get("period").MustInt(0))
-	if period == 0 && !usePrefixMatch {
+
+	var period int64
+
+	if model.Period != nil && *model.Period != "" {
+		p, err := strconv.ParseInt(*model.Period, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		period = p
+	}
+
+	prefixMatching := false
+	if model.PrefixMatching != nil {
+		prefixMatching = *model.PrefixMatching
+	}
+	if period == 0 && !prefixMatching {
 		period = 300
 	}
-	actionPrefix := parameters.Get("actionPrefix").MustString("")
-	alarmNamePrefix := parameters.Get("alarmNamePrefix").MustString("")
 
-	cli, err := e.getCWClient(region)
+	actionPrefix := model.ActionPrefix
+	alarmNamePrefix := model.AlarmNamePrefix
+
+	cli, err := e.getCWClient(ctx, pluginCtx, model.Region)
 	if err != nil {
-		return plugins.DataResponse{}, err
+		return nil, err
 	}
 
 	var alarmNames []*string
-	if usePrefixMatch {
+	metricName := ""
+	if model.MetricName != nil {
+		metricName = *model.MetricName
+	}
+
+	dimensions := dataquery.Dimensions{}
+	if model.Dimensions != nil {
+		dimensions = *model.Dimensions
+	}
+
+	if prefixMatching {
 		params := &cloudwatch.DescribeAlarmsInput{
 			MaxRecords:      aws.Int64(100),
-			ActionPrefix:    aws.String(actionPrefix),
-			AlarmNamePrefix: aws.String(alarmNamePrefix),
+			ActionPrefix:    actionPrefix,
+			AlarmNamePrefix: alarmNamePrefix,
 		}
 		resp, err := cli.DescribeAlarms(params)
 		if err != nil {
-			return plugins.DataResponse{}, errutil.Wrap("failed to call cloudwatch:DescribeAlarms", err)
+			return nil, fmt.Errorf("%v: %w", "failed to call cloudwatch:DescribeAlarms", err)
 		}
-		alarmNames = filterAlarms(resp, namespace, metricName, dimensions, statistics, period)
+		alarmNames = filterAlarms(resp, model.Namespace, metricName, dimensions, statistic, period)
 	} else {
-		if region == "" || namespace == "" || metricName == "" || len(statistics) == 0 {
+		if model.Region == "" || model.Namespace == "" || metricName == "" || statistic == "" {
 			return result, errors.New("invalid annotations query")
 		}
 
 		var qd []*cloudwatch.Dimension
 		for k, v := range dimensions {
-			if vv, ok := v.([]interface{}); ok {
+			if vv, ok := v.([]any); ok {
 				for _, vvv := range vv {
 					if vvvv, ok := vvv.(string); ok {
 						qd = append(qd, &cloudwatch.Dimension{
@@ -72,84 +95,74 @@ func (e *cloudWatchExecutor) executeAnnotationQuery(ctx context.Context, queryCo
 				}
 			}
 		}
-		for _, s := range statistics {
-			params := &cloudwatch.DescribeAlarmsForMetricInput{
-				Namespace:  aws.String(namespace),
-				MetricName: aws.String(metricName),
-				Dimensions: qd,
-				Statistic:  aws.String(s),
-				Period:     aws.Int64(period),
-			}
-			resp, err := cli.DescribeAlarmsForMetric(params)
-			if err != nil {
-				return plugins.DataResponse{}, errutil.Wrap("failed to call cloudwatch:DescribeAlarmsForMetric", err)
-			}
-			for _, alarm := range resp.MetricAlarms {
-				alarmNames = append(alarmNames, alarm.AlarmName)
-			}
+		params := &cloudwatch.DescribeAlarmsForMetricInput{
+			Namespace:  aws.String(model.Namespace),
+			MetricName: aws.String(metricName),
+			Dimensions: qd,
+			Statistic:  aws.String(statistic),
+			Period:     aws.Int64(period),
+		}
+		resp, err := cli.DescribeAlarmsForMetric(params)
+		if err != nil {
+			return nil, fmt.Errorf("%v: %w", "failed to call cloudwatch:DescribeAlarmsForMetric", err)
+		}
+		for _, alarm := range resp.MetricAlarms {
+			alarmNames = append(alarmNames, alarm.AlarmName)
 		}
 	}
 
-	startTime, err := queryContext.TimeRange.ParseFrom()
-	if err != nil {
-		return plugins.DataResponse{}, err
-	}
-	endTime, err := queryContext.TimeRange.ParseTo()
-	if err != nil {
-		return plugins.DataResponse{}, err
-	}
-
-	annotations := make([]map[string]string, 0)
+	annotations := make([]*annotationEvent, 0)
 	for _, alarmName := range alarmNames {
 		params := &cloudwatch.DescribeAlarmHistoryInput{
 			AlarmName:  alarmName,
-			StartDate:  aws.Time(startTime),
-			EndDate:    aws.Time(endTime),
+			StartDate:  aws.Time(query.TimeRange.From),
+			EndDate:    aws.Time(query.TimeRange.To),
 			MaxRecords: aws.Int64(100),
 		}
 		resp, err := cli.DescribeAlarmHistory(params)
 		if err != nil {
-			return plugins.DataResponse{}, errutil.Wrap("failed to call cloudwatch:DescribeAlarmHistory", err)
+			return nil, fmt.Errorf("%v: %w", "failed to call cloudwatch:DescribeAlarmHistory", err)
 		}
 		for _, history := range resp.AlarmHistoryItems {
-			annotation := make(map[string]string)
-			annotation["time"] = history.Timestamp.UTC().Format(time.RFC3339)
-			annotation["title"] = *history.AlarmName
-			annotation["tags"] = *history.HistoryItemType
-			annotation["text"] = *history.HistorySummary
-			annotations = append(annotations, annotation)
+			annotations = append(annotations, &annotationEvent{
+				Time:  *history.Timestamp,
+				Title: *history.AlarmName,
+				Tags:  *history.HistoryItemType,
+				Text:  *history.HistorySummary,
+			})
 		}
 	}
 
-	transformAnnotationToTable(annotations, &queryResult)
-	result.Results[firstQuery.RefID] = queryResult
-	return result, nil
+	respD := result.Responses[query.RefID]
+	respD.Frames = append(respD.Frames, transformAnnotationToTable(annotations, query))
+	result.Responses[query.RefID] = respD
+
+	return result, err
 }
 
-func transformAnnotationToTable(data []map[string]string, result *plugins.DataQueryResult) {
-	table := plugins.DataTable{
-		Columns: make([]plugins.DataTableColumn, 4),
-		Rows:    make([]plugins.DataRowValues, 0),
-	}
-	table.Columns[0].Text = "time"
-	table.Columns[1].Text = "title"
-	table.Columns[2].Text = "tags"
-	table.Columns[3].Text = "text"
+func transformAnnotationToTable(annotations []*annotationEvent, query backend.DataQuery) *data.Frame {
+	frame := data.NewFrame(query.RefID,
+		data.NewField("time", nil, []time.Time{}),
+		data.NewField("title", nil, []string{}),
+		data.NewField("tags", nil, []string{}),
+		data.NewField("text", nil, []string{}),
+	)
 
-	for _, r := range data {
-		values := make([]interface{}, 4)
-		values[0] = r["time"]
-		values[1] = r["title"]
-		values[2] = r["tags"]
-		values[3] = r["text"]
-		table.Rows = append(table.Rows, values)
+	for _, a := range annotations {
+		frame.AppendRow(a.Time, a.Title, a.Tags, a.Text)
 	}
-	result.Tables = append(result.Tables, table)
-	result.Meta.Set("rowCount", len(data))
+
+	frame.Meta = &data.FrameMeta{
+		Custom: map[string]any{
+			"rowCount": len(annotations),
+		},
+	}
+
+	return frame
 }
 
 func filterAlarms(alarms *cloudwatch.DescribeAlarmsOutput, namespace string, metricName string,
-	dimensions map[string]interface{}, statistics []string, period int64) []*string {
+	dimensions map[string]any, statistic string, period int64) []*string {
 	alarmNames := make([]*string, 0)
 
 	for _, alarm := range alarms.MetricAlarms {
@@ -160,33 +173,24 @@ func filterAlarms(alarms *cloudwatch.DescribeAlarmsOutput, namespace string, met
 			continue
 		}
 
-		match := true
+		matchDimension := true
 		if len(dimensions) != 0 {
 			if len(alarm.Dimensions) != len(dimensions) {
-				match = false
+				matchDimension = false
 			} else {
 				for _, d := range alarm.Dimensions {
 					if _, ok := dimensions[*d.Name]; !ok {
-						match = false
+						matchDimension = false
 					}
 				}
 			}
 		}
-		if !match {
+		if !matchDimension {
 			continue
 		}
 
-		if len(statistics) != 0 {
-			found := false
-			for _, s := range statistics {
-				if *alarm.Statistic == s {
-					found = true
-					break
-				}
-			}
-			if !found {
-				continue
-			}
+		if *alarm.Statistic != statistic {
+			continue
 		}
 
 		if period != 0 && *alarm.Period != period {

@@ -1,46 +1,63 @@
-import React, { FC, ReactNode } from 'react';
-import { css, cx } from 'emotion';
-import { GrafanaTheme } from '@grafana/data';
-import { useStyles } from '../../themes/ThemeContext';
+import { css, cx } from '@emotion/css';
+import React, { ReactNode } from 'react';
+
+import { GrafanaTheme2 } from '@grafana/data';
+import { selectors } from '@grafana/e2e-selectors';
+
+import { useStyles2 } from '../../themes/ThemeContext';
+import { getFocusStyles } from '../../themes/mixins';
 import { IconName } from '../../types';
 import { Icon } from '../Icon/Icon';
-import { styleMixins } from '../../themes';
 import { IconButton } from '../IconButton/IconButton';
-import { selectors } from '@grafana/e2e-selectors';
+import { Link } from '../Link/Link';
+import { ToolbarButtonRow } from '../ToolbarButton/ToolbarButtonRow';
 
 export interface Props {
   pageIcon?: IconName;
-  title: string;
+  title?: string;
+  section?: string;
   parent?: string;
   onGoBack?: () => void;
-  onClickTitle?: () => void;
-  onClickParent?: () => void;
+  titleHref?: string;
+  parentHref?: string;
   leftItems?: ReactNode[];
   children?: ReactNode;
   className?: string;
   isFullscreen?: boolean;
+  'aria-label'?: string;
+  buttonOverflowAlignment?: 'left' | 'right';
+  /**
+   * Forces left items to be visible on small screens.
+   * By default left items are hidden on small screens.
+   */
+  forceShowLeftItems?: boolean;
 }
 
 /** @alpha */
-export const PageToolbar: FC<Props> = React.memo(
+export const PageToolbar = React.memo(
   ({
     title,
+    section,
     parent,
     pageIcon,
     onGoBack,
     children,
-    onClickTitle,
-    onClickParent,
+    titleHref,
+    parentHref,
     leftItems,
     isFullscreen,
     className,
-  }) => {
-    const styles = useStyles(getStyles);
+    /** main nav-container aria-label **/
+    'aria-label': ariaLabel,
+    buttonOverflowAlignment = 'right',
+    forceShowLeftItems = false,
+  }: Props) => {
+    const styles = useStyles2(getStyles);
 
     /**
      * .page-toolbar css class is used for some legacy css view modes (TV/Kiosk) and
      * media queries for mobile view when toolbar needs left padding to make room
-     * for mobile menu icon. This logic hopefylly can be changed when we move to a full react
+     * for mobile menu icon. This logic hopefully can be changed when we move to a full react
      * app and change how the app side menu & mobile menu is rendered.
      */
     const mainStyle = cx(
@@ -48,155 +65,192 @@ export const PageToolbar: FC<Props> = React.memo(
       styles.toolbar,
       {
         ['page-toolbar--fullscreen']: isFullscreen,
+        [styles.noPageIcon]: !pageIcon,
       },
       className
     );
 
+    const titleEl = (
+      <>
+        <span className={styles.truncateText}>{title}</span>
+        {section && <span className={styles.pre}> / {section}</span>}
+      </>
+    );
+
     return (
-      <div className={mainStyle}>
-        <div className={styles.toolbarLeft}>
+      <nav className={mainStyle} aria-label={ariaLabel}>
+        <div className={styles.leftWrapper}>
           {pageIcon && !onGoBack && (
             <div className={styles.pageIcon}>
-              <Icon name={pageIcon} size="lg" />
+              <Icon name={pageIcon} size="lg" aria-hidden />
             </div>
           )}
           {onGoBack && (
-            <div className={styles.goBackButton}>
+            <div className={styles.pageIcon}>
               <IconButton
                 name="arrow-left"
                 tooltip="Go back (Esc)"
                 tooltipPlacement="bottom"
                 size="xxl"
-                surface="dashboard"
-                aria-label={selectors.components.BackButton.backArrow}
+                data-testid={selectors.components.BackButton.backArrow}
                 onClick={onGoBack}
               />
             </div>
           )}
-          <div className={styles.titleWrapper}>
-            {parent && onClickParent && (
-              <button onClick={onClickParent} className={cx(styles.titleLink, styles.parentLink)}>
-                {parent} <span className={styles.parentIcon}>/</span>
-              </button>
+          <nav aria-label="Search links" className={styles.navElement}>
+            {parent && parentHref && (
+              <>
+                <Link
+                  aria-label={`Search dashboard in the ${parent} folder`}
+                  className={cx(styles.titleText, styles.parentLink, styles.titleLink, styles.truncateText)}
+                  href={parentHref}
+                >
+                  {parent} <span className={styles.parentIcon}></span>
+                </Link>
+                {titleHref && (
+                  <span className={cx(styles.titleText, styles.titleDivider)} aria-hidden>
+                    /
+                  </span>
+                )}
+              </>
             )}
-            {onClickTitle && (
-              <button onClick={onClickTitle} className={styles.titleLink}>
-                {title}
-              </button>
-            )}
-            {!onClickTitle && <div className={styles.titleText}>{title}</div>}
-          </div>
-          {leftItems?.map((child, index) => (
-            <div className={styles.leftActionItem} key={index}>
-              {child}
-            </div>
-          ))}
-        </div>
-        <div className={styles.spacer}></div>
-        {React.Children.toArray(children)
-          .filter(Boolean)
-          .map((child, index) => {
-            return (
-              <div className={styles.actionWrapper} key={index}>
-                {child}
+
+            {(title || Boolean(leftItems?.length)) && (
+              <div className={styles.titleWrapper}>
+                {title && (
+                  <h1 className={styles.h1Styles}>
+                    {titleHref ? (
+                      <Link
+                        aria-label="Search dashboard by name"
+                        className={cx(styles.titleText, styles.titleLink)}
+                        href={titleHref}
+                      >
+                        {titleEl}
+                      </Link>
+                    ) : (
+                      <div className={styles.titleText}>{titleEl}</div>
+                    )}
+                  </h1>
+                )}
+
+                {leftItems?.map((child, index) => (
+                  <div
+                    className={cx(styles.leftActionItem, { [styles.forceShowLeftActionItems]: forceShowLeftItems })}
+                    key={index}
+                  >
+                    {child}
+                  </div>
+                ))}
               </div>
-            );
-          })}
-      </div>
+            )}
+          </nav>
+        </div>
+        <ToolbarButtonRow alignment={buttonOverflowAlignment}>
+          {React.Children.toArray(children).filter(Boolean)}
+        </ToolbarButtonRow>
+      </nav>
     );
   }
 );
 
 PageToolbar.displayName = 'PageToolbar';
 
-const getStyles = (theme: GrafanaTheme) => {
+const getStyles = (theme: GrafanaTheme2) => {
   const { spacing, typography } = theme;
 
-  const titleStyles = `
-      font-size: ${typography.size.lg};
-      padding-left: ${spacing.sm};
-      white-space: nowrap;
-      text-overflow: ellipsis;
-      overflow: hidden;
-      max-width: 240px;
-
-      // clear default button styles
-      background: none;
-      border: none;
-
-      @media ${styleMixins.mediaUp(theme.breakpoints.xl)} {
-        max-width: unset;
-      }
-  `;
+  const focusStyle = getFocusStyles(theme);
 
   return {
-    toolbar: css`
-      display: flex;
-      background: ${theme.colors.dashboardBg};
-      justify-content: flex-end;
-      flex-wrap: wrap;
-      padding: 0 ${spacing.md} ${spacing.sm} ${spacing.md};
-    `,
-    toolbarLeft: css`
-      display: flex;
-      flex-grow: 1;
-      min-width: 0;
-    `,
-    spacer: css`
-      flex-grow: 1;
-    `,
-    pageIcon: css`
-      padding-top: ${spacing.sm};
-      align-items: center;
-      display: none;
+    pre: css({
+      whiteSpace: 'pre',
+    }),
+    toolbar: css({
+      alignItems: 'center',
+      background: theme.colors.background.canvas,
+      display: 'flex',
+      gap: theme.spacing(2),
+      justifyContent: 'space-between',
+      padding: theme.spacing(1.5, 2),
 
-      @media ${styleMixins.mediaUp(theme.breakpoints.md)} {
-        display: flex;
-      }
-    `,
-    titleWrapper: css`
-      display: flex;
-      align-items: center;
-      padding-top: ${spacing.sm};
-      padding-right: ${spacing.sm};
-      min-width: 0;
-      overflow: hidden;
-    `,
-    goBackButton: css`
-      position: relative;
-      top: 8px;
-    `,
-    parentIcon: css`
-      margin-left: 4px;
-    `,
-    titleText: css`
-      ${titleStyles};
-    `,
-    titleLink: css`
-      ${titleStyles};
-    `,
-    parentLink: css`
-      display: none;
-
-      @media ${styleMixins.mediaUp(theme.breakpoints.md)} {
-        display: inline-block;
-      }
-    `,
-    actionWrapper: css`
-      padding-left: ${spacing.sm};
-      padding-top: ${spacing.sm};
-    `,
-    leftActionItem: css`
-      display: none;
-      height: 40px;
-      position: relative;
-      top: 5px;
-      align-items: center;
-      padding-left: ${spacing.xs};
-
-      @media ${styleMixins.mediaUp(theme.breakpoints.md)} {
-        display: flex;
-      }
-    `,
+      [theme.breakpoints.down('md')]: {
+        paddingLeft: '53px',
+      },
+    }),
+    noPageIcon: css({
+      [theme.breakpoints.down('md')]: {
+        paddingLeft: theme.spacing(2),
+      },
+    }),
+    leftWrapper: css({
+      display: 'flex',
+      flexWrap: 'nowrap',
+      maxWidth: '70%',
+    }),
+    pageIcon: css({
+      display: 'none',
+      [theme.breakpoints.up('sm')]: {
+        display: 'flex',
+        paddingRight: theme.spacing(1),
+        alignItems: 'center',
+      },
+    }),
+    truncateText: css({
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    }),
+    titleWrapper: css({
+      display: 'flex',
+      margin: 0,
+      minWidth: 0,
+    }),
+    navElement: css({
+      display: 'flex',
+      alignItems: 'center',
+      minWidth: 0,
+    }),
+    h1Styles: css({
+      margin: spacing(0, 1, 0, 0),
+      lineHeight: 'inherit',
+      flexGrow: 1,
+      minWidth: 0,
+    }),
+    parentIcon: css({
+      marginLeft: theme.spacing(0.5),
+    }),
+    titleText: css({
+      display: 'flex',
+      fontSize: typography.size.lg,
+      margin: 0,
+      borderRadius: theme.shape.radius.default,
+    }),
+    titleLink: css({
+      '&:focus-visible': focusStyle,
+    }),
+    titleDivider: css({
+      padding: spacing(0, 0.5, 0, 0.5),
+      display: 'none',
+      [theme.breakpoints.up('md')]: {
+        display: 'unset',
+      },
+    }),
+    parentLink: css({
+      display: 'none',
+      [theme.breakpoints.up('md')]: {
+        display: 'unset',
+        flex: 1,
+      },
+    }),
+    leftActionItem: css({
+      display: 'none',
+      alignItems: 'center',
+      paddingRight: spacing(0.5),
+      [theme.breakpoints.up('md')]: {
+        display: 'flex',
+      },
+    }),
+    forceShowLeftActionItems: css({
+      display: 'flex',
+    }),
   };
 };

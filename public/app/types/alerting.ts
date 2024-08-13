@@ -1,7 +1,5 @@
-import { DataFrame, DataQuery, PanelData, SelectableValue, TimeRange } from '@grafana/data';
-import { PanelQueryRunner } from '../features/query/state/PanelQueryRunner';
-import { QueryGroupOptions } from './query';
-import { ExpressionQuery } from '../features/expressions/types';
+import { SelectableValue } from '@grafana/data';
+import { IconName } from '@grafana/ui';
 
 export interface AlertRuleDTO {
   id: number;
@@ -28,7 +26,7 @@ export interface AlertRule {
   state: string;
   newStateDate?: string;
   stateText: string;
-  stateIcon: string;
+  stateIcon: IconName;
   stateClass: string;
   stateAge: string;
   url: string;
@@ -38,7 +36,7 @@ export interface AlertRule {
   evalData?: { noData?: boolean; evalMatches?: any };
 }
 
-export type NotifierType =
+export type GrafanaNotifierType =
   | 'discord'
   | 'hipchat'
   | 'email'
@@ -57,12 +55,30 @@ export type NotifierType =
   | 'victorops'
   | 'pushover'
   | 'LINE'
-  | 'kafka';
+  | 'kafka'
+  | 'wecom';
 
-export interface NotifierDTO {
+export type CloudNotifierType =
+  | 'oncall' // Only FE implementation for now
+  | 'email'
+  | 'pagerduty'
+  | 'pushover'
+  | 'slack'
+  | 'opsgenie'
+  | 'victorops'
+  | 'webhook'
+  | 'wechat'
+  | 'webex'
+  | 'telegram'
+  | 'sns'
+  | 'discord'
+  | 'msteams';
+
+export type NotifierType = GrafanaNotifierType | CloudNotifierType;
+export interface NotifierDTO<T = NotifierType> {
   name: string;
   description: string;
-  type: NotifierType;
+  type: T;
   heading: string;
   options: NotificationChannelOption[];
   info?: string;
@@ -105,7 +121,16 @@ export interface ChannelTypeSettings {
 }
 
 export interface NotificationChannelOption {
-  element: 'input' | 'select' | 'checkbox' | 'textarea';
+  element:
+    | 'input'
+    | 'select'
+    | 'checkbox'
+    | 'radio'
+    | 'textarea'
+    | 'subform'
+    | 'subform_array'
+    | 'key_value_map'
+    | 'string_array';
   inputType: string;
   label: string;
   description: string;
@@ -113,9 +138,13 @@ export interface NotificationChannelOption {
   propertyName: string;
   required: boolean;
   secure: boolean;
-  selectOptions?: Array<SelectableValue<string>>;
-  showWhen: { field: string; is: string };
+  selectOptions?: Array<SelectableValue<string>> | null;
+  defaultValue?: SelectableValue<string>;
+  showWhen: { field: string; is: string | boolean };
   validationRule: string;
+  subformOptions?: NotificationChannelOption[];
+  dependsOn: string;
+  setValueAs?: (value: string | boolean) => string | number | boolean | null;
 }
 
 export interface NotificationChannelState {
@@ -124,6 +153,38 @@ export interface NotificationChannelState {
   notificationChannel: any;
 }
 
+export interface NotifierStatus {
+  lastNotifyAttemptError?: null | string;
+  lastNotifyAttempt: string;
+  lastNotifyAttemptDuration: string;
+  name: string;
+  sendResolved?: boolean;
+}
+
+export interface NotifiersState {
+  [key: string]: NotifierStatus[]; // key is the notifier type
+}
+
+export interface ReceiverState {
+  active: boolean;
+  notifiers: NotifiersState;
+  errorCount: number; // errors by receiver
+}
+
+export interface ReceiversState {
+  [key: string]: ReceiverState;
+}
+
+export interface ContactPointsState {
+  receivers: ReceiversState;
+  errorCount: number;
+}
+
+export interface ReceiversStateDTO {
+  active: boolean;
+  integrations: NotifierStatus[];
+  name: string;
+}
 export interface AlertRulesState {
   items: AlertRule[];
   searchQuery: string;
@@ -135,44 +196,6 @@ export interface AlertNotification {
   name: string;
   id: number;
   type: string;
-}
-
-export interface AlertDefinitionState {
-  uiState: AlertDefinitionUiState;
-  alertDefinition: AlertDefinition;
-  queryRunner?: PanelQueryRunner;
-  data: PanelData[];
-  alertDefinitions: AlertDefinition[];
-  getInstances: () => DataFrame[];
-  getQueryOptions: () => QueryGroupOptions;
-}
-
-export interface AlertDefinition {
-  id: number;
-  uid: string;
-  title: string;
-  description: string;
-  condition: string;
-  data: any[];
-  intervalSeconds: number;
-}
-
-export interface AlertDefinitionDTO extends AlertDefinition {
-  queryType: string;
-  refId: string;
-  relativeTimeRange: TimeRange;
-  orgId: number;
-  updated: string;
-  version: number;
-}
-
-export interface AlertDefinitionQueryModel {
-  model: DataQuery | ExpressionQuery;
-}
-
-export interface AlertDefinitionUiState {
-  rightPaneSize: number;
-  topPaneSize: number;
 }
 
 export interface AnnotationItemDTO {

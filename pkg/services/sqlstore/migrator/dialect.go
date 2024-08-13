@@ -2,9 +2,16 @@ package migrator
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
+	"golang.org/x/exp/slices"
 	"xorm.io/xorm"
+)
+
+var (
+	ErrLockDB        = fmt.Errorf("failed to obtain lock")
+	ErrReleaseLockDB = fmt.Errorf("failed to release lock")
 )
 
 type Dialect interface {
@@ -21,6 +28,9 @@ type Dialect interface {
 	Default(col *Column) string
 	BooleanStr(bool) string
 	DateTimeFunc(string) string
+	BatchSize() int
+
+	OrderBy(order string) string
 
 	CreateIndexSQL(tableName string, index *Index) string
 	CreateTableSQL(table *Table) string
@@ -29,13 +39,20 @@ type Dialect interface {
 	DropTable(tableName string) string
 	DropIndexSQL(tableName string, index *Index) string
 
+	// RenameTable is deprecated, its use cause breaking changes
+	// so, it should no longer be used. Kept for legacy reasons.
 	RenameTable(oldName string, newName string) string
+	// RenameColumn is deprecated, its use cause breaking changes
+	// so, it should no longer be used. Kept for legacy reasons.
+	RenameColumn(table Table, column *Column, newName string) string
+
 	UpdateTableSQL(tableName string, columns []*Column) string
 
-	IndexCheckSQL(tableName, indexName string) (string, []interface{})
-	ColumnCheckSQL(tableName, columnName string) (string, []interface{})
+	IndexCheckSQL(tableName, indexName string) (string, []any)
+	ColumnCheckSQL(tableName, columnName string) (string, []any)
 	// UpsertSQL returns the upsert sql statement for a dialect
 	UpsertSQL(tableName string, keyCols, updateCols []string) string
+	UpsertMultipleSQL(tableName string, keyCols, updateCols []string, count int) (string, error)
 
 	ColString(*Column) string
 	ColStringNoPk(*Column) string
@@ -46,16 +63,34 @@ type Dialect interface {
 	PreInsertId(table string, sess *xorm.Session) error
 	PostInsertId(table string, sess *xorm.Session) error
 
-	CleanDB() error
-	TruncateDBTables() error
+	CleanDB(engine *xorm.Engine) error
+	TruncateDBTables(engine *xorm.Engine) error
 	NoOpSQL() string
 
 	IsUniqueConstraintViolation(err error) bool
 	ErrorMessage(err error) string
 	IsDeadlock(err error) bool
+	Lock(LockCfg) error
+	Unlock(LockCfg) error
+
+	GetDBName(string) (string, error)
+
+	// InsertQuery accepts a table name and a map of column names to values to insert.
+	// It returns a query string and a slice of parameters that can be executed against the database.
+	InsertQuery(tableName string, row map[string]any) (string, []any, error)
+	// UpdateQuery accepts a table name, a map of column names to values to update, and a map of
+	// column names to values to use in the where clause.
+	// It returns a query string and a slice of parameters that can be executed against the database.
+	UpdateQuery(tableName string, row map[string]any, where map[string]any) (string, []any, error)
 }
 
-type dialectFunc func(*xorm.Engine) Dialect
+type LockCfg struct {
+	Session *xorm.Session
+	Key     string
+	Timeout int
+}
+
+type dialectFunc func() Dialect
 
 var supportedDialects = map[string]dialectFunc{
 	MySQL:                  NewMysqlDialect,
@@ -66,18 +101,16 @@ var supportedDialects = map[string]dialectFunc{
 	Postgres + "WithHooks": NewPostgresDialect,
 }
 
-func NewDialect(engine *xorm.Engine) Dialect {
-	name := engine.DriverName()
-	if fn, exist := supportedDialects[name]; exist {
-		return fn(engine)
+func NewDialect(driverName string) Dialect {
+	if fn, exist := supportedDialects[driverName]; exist {
+		return fn()
 	}
 
-	panic("Unsupported database type: " + name)
+	panic("Unsupported database type: " + driverName)
 }
 
 type BaseDialect struct {
 	dialect    Dialect
-	engine     *xorm.Engine
 	driverName string
 }
 
@@ -106,6 +139,14 @@ func (b *BaseDialect) EqStr() string {
 }
 
 func (b *BaseDialect) Default(col *Column) string {
+	if col.Type == DB_Bool {
+		// Ensure that all dialects support the same literals in the same way.
+		bl, err := strconv.ParseBool(col.Default)
+		if err != nil {
+			panic(fmt.Errorf("failed to create default value for column '%s': invalid boolean default value '%s'", col.Name, col.Default))
+		}
+		return b.dialect.BooleanStr(bl)
+	}
 	return col.Default
 }
 
@@ -195,7 +236,15 @@ func (b *BaseDialect) RenameTable(oldName string, newName string) string {
 	return fmt.Sprintf("ALTER TABLE %s RENAME TO %s", quote(oldName), quote(newName))
 }
 
-func (b *BaseDialect) ColumnCheckSQL(tableName, columnName string) (string, []interface{}) {
+func (b *BaseDialect) RenameColumn(table Table, column *Column, newName string) string {
+	quote := b.dialect.Quote
+	return fmt.Sprintf(
+		"ALTER TABLE %s RENAME COLUMN %s TO %s",
+		quote(table.Name), quote(column.Name), quote(newName),
+	)
+}
+
+func (b *BaseDialect) ColumnCheckSQL(tableName, columnName string) (string, []any) {
 	return "", nil
 }
 
@@ -272,7 +321,7 @@ func (b *BaseDialect) PostInsertId(table string, sess *xorm.Session) error {
 	return nil
 }
 
-func (b *BaseDialect) CleanDB() error {
+func (b *BaseDialect) CleanDB(engine *xorm.Engine) error {
 	return nil
 }
 
@@ -280,11 +329,95 @@ func (b *BaseDialect) NoOpSQL() string {
 	return "SELECT 0;"
 }
 
-func (b *BaseDialect) TruncateDBTables() error {
+func (b *BaseDialect) TruncateDBTables(engine *xorm.Engine) error {
 	return nil
 }
 
-//UpsertSQL returns empty string
+// UpsertSQL returns empty string
 func (b *BaseDialect) UpsertSQL(tableName string, keyCols, updateCols []string) string {
 	return ""
+}
+
+func (b *BaseDialect) Lock(_ LockCfg) error {
+	return nil
+}
+
+func (b *BaseDialect) Unlock(_ LockCfg) error {
+	return nil
+}
+
+func (b *BaseDialect) OrderBy(order string) string {
+	return order
+}
+
+func (b *BaseDialect) GetDBName(_ string) (string, error) {
+	return "", nil
+}
+
+func (b *BaseDialect) InsertQuery(tableName string, row map[string]any) (string, []any, error) {
+	if len(row) < 1 {
+		return "", nil, fmt.Errorf("no columns provided")
+	}
+
+	// allocate slices
+	cols := make([]string, 0, len(row))
+	vals := make([]any, 0, len(row))
+	keys := make([]string, 0, len(row))
+
+	// create sorted list of columns
+	for col := range row {
+		keys = append(keys, col)
+	}
+	slices.Sort[string](keys)
+
+	// build query and values
+	for _, col := range keys {
+		cols = append(cols, b.dialect.Quote(col))
+		vals = append(vals, row[col])
+	}
+
+	return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", b.dialect.Quote(tableName), strings.Join(cols, ", "), strings.Repeat("?, ", len(row)-1)+"?"), vals, nil
+}
+
+func (b *BaseDialect) UpdateQuery(tableName string, row map[string]any, where map[string]any) (string, []any, error) {
+	if len(row) < 1 {
+		return "", nil, fmt.Errorf("no columns provided")
+	}
+
+	if len(where) < 1 {
+		return "", nil, fmt.Errorf("no where clause provided")
+	}
+
+	// allocate slices
+	cols := make([]string, 0, len(row))
+	whereCols := make([]string, 0, len(where))
+	vals := make([]any, 0, len(row)+len(where))
+	keys := make([]string, 0, len(row))
+
+	// create sorted list of columns to update
+	for col := range row {
+		keys = append(keys, col)
+	}
+	slices.Sort[string](keys)
+
+	// build update query and values
+	for _, col := range keys {
+		cols = append(cols, b.dialect.Quote(col)+"=?")
+		vals = append(vals, row[col])
+	}
+
+	// create sorted list of columns for where clause
+	keys = make([]string, 0, len(where))
+	for col := range where {
+		keys = append(keys, col)
+	}
+	slices.Sort[string](keys)
+
+	// build where clause and values
+	for _, col := range keys {
+		whereCols = append(whereCols, b.dialect.Quote(col)+"=?")
+		vals = append(vals, where[col])
+	}
+
+	return fmt.Sprintf("UPDATE %s SET %s WHERE %s", b.dialect.Quote(tableName), strings.Join(cols, ", "), strings.Join(whereCols, " AND ")), vals, nil
 }

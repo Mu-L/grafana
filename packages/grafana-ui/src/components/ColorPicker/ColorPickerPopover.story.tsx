@@ -1,30 +1,47 @@
+import { Meta } from '@storybook/react';
+import React from 'react';
+
+import { useTheme2 } from '../../themes';
+
 import { ColorPickerPopover } from './ColorPickerPopover';
-
-import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
 import { SeriesColorPickerPopover } from './SeriesColorPickerPopover';
-import { renderComponentWithTheme } from '../../utils/storybook/withTheme';
 
-export default {
+const meta: Meta<typeof ColorPickerPopover> = {
   title: 'Pickers and Editors/ColorPicker/Popovers',
   component: ColorPickerPopover,
+  // SB7 has broken subcomponent types due to dropping support for the feature
+  // https://github.com/storybookjs/storybook/issues/20782
+  // @ts-ignore
   subcomponents: { SeriesColorPickerPopover },
-  decorators: [withCenteredStory],
 };
 
-export const basic = () => {
-  return renderComponentWithTheme(ColorPickerPopover, {
-    color: '#BC67E6',
-    onChange: (color: any) => {
-      console.log(color);
-    },
-  });
+export const Basic = () => {
+  return (
+    <div style={{ position: 'absolute' }}>
+      <ColorPickerPopover
+        color="#BC67E6"
+        onChange={(color: string) => {
+          console.log(color);
+        }}
+      />
+    </div>
+  );
 };
 
-export const seriesColorPickerPopover = () => {
-  return renderComponentWithTheme(SeriesColorPickerPopover, {
-    color: '#BC67E6',
-    onChange: (color: any) => {
-      console.log(color);
-    },
-  });
+export const SeriesColorPickerPopoverExample = () => {
+  const theme = useTheme2();
+
+  return (
+    <div style={{ position: 'absolute' }}>
+      <SeriesColorPickerPopover
+        theme={theme}
+        color="#BC67E6"
+        onChange={(color: string) => {
+          console.log(color);
+        }}
+      />
+    </div>
+  );
 };
+
+export default meta;

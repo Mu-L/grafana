@@ -1,38 +1,43 @@
 import { PanelPlugin } from '@grafana/data';
-import { DrawStyle, GraphFieldConfig } from '@grafana/ui';
-import { XYChartPanel } from './XYChartPanel';
-import { Options } from './types';
-import { XYDimsEditor } from './XYDimsEditor';
-import { getGraphFieldConfig, defaultGraphConfig, addLegendOptions } from '../timeseries/config';
+import { commonOptionsBuilder } from '@grafana/ui';
 
-export const plugin = new PanelPlugin<Options, GraphFieldConfig>(XYChartPanel)
-  .useFieldConfig(
-    getGraphFieldConfig({
-      ...defaultGraphConfig,
-      drawStyle: DrawStyle.Points,
-    })
-  )
+import { AutoEditor } from './AutoEditor';
+import { ManualEditor } from './ManualEditor';
+import { XYChartPanel } from './XYChartPanel';
+import { getScatterFieldConfig } from './config';
+import { Options, FieldConfig, defaultFieldConfig } from './panelcfg.gen';
+
+export const plugin = new PanelPlugin<Options, FieldConfig>(XYChartPanel)
+  .useFieldConfig(getScatterFieldConfig(defaultFieldConfig))
   .setPanelOptions((builder) => {
     builder
+      .addRadio({
+        path: 'seriesMapping',
+        name: 'Series mapping',
+        defaultValue: 'auto',
+        settings: {
+          options: [
+            { value: 'auto', label: 'Table', description: 'Plot values within a single table result' },
+            { value: 'manual', label: 'Manual', description: 'Construct values from any result' },
+          ],
+        },
+      })
       .addCustomEditor({
         id: 'xyPlotConfig',
         path: 'dims',
-        name: 'Data',
-        editor: XYDimsEditor,
+        name: '',
+        editor: AutoEditor,
+        showIf: (cfg) => cfg.seriesMapping === 'auto',
       })
-      .addRadio({
-        path: 'tooltipOptions.mode',
-        name: 'Tooltip mode',
-        description: '',
-        defaultValue: 'single',
-        settings: {
-          options: [
-            { value: 'single', label: 'Single' },
-            { value: 'multi', label: 'All' },
-            { value: 'none', label: 'Hidden' },
-          ],
-        },
+      .addCustomEditor({
+        id: 'series',
+        path: 'series',
+        name: '',
+        defaultValue: [],
+        editor: ManualEditor,
+        showIf: (cfg) => cfg.seriesMapping === 'manual',
       });
 
-    addLegendOptions(builder);
+    commonOptionsBuilder.addTooltipOptions(builder, true);
+    commonOptionsBuilder.addLegendOptions(builder);
   });

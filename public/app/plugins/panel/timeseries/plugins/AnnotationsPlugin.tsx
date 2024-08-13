@@ -1,125 +1,162 @@
-import { DataFrame, DataFrameView, dateTimeFormat, systemDateFormats, TimeZone } from '@grafana/data';
-import { EventsCanvas, usePlotContext, useTheme } from '@grafana/ui';
-import React, { useCallback, useEffect, useRef } from 'react';
-import { AnnotationMarker } from './AnnotationMarker';
+import React, { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import uPlot from 'uplot';
+
+import { colorManipulator, DataFrame, DataFrameFieldIndex, DataFrameView, TimeZone } from '@grafana/data';
+import { EventsCanvas, UPlotConfigBuilder, useTheme2 } from '@grafana/ui';
+
+import { AnnotationMarker } from './annotations/AnnotationMarker';
+import { AnnotationsDataFrameViewDTO } from './types';
 
 interface AnnotationsPluginProps {
+  config: UPlotConfigBuilder;
   annotations: DataFrame[];
   timeZone: TimeZone;
+  disableCanvasRendering?: boolean;
 }
 
-interface AnnotationsDataFrameViewDTO {
-  time: number;
-  text: string;
-  tags: string[];
-}
+export const AnnotationsPlugin = ({
+  annotations,
+  timeZone,
+  config,
+  disableCanvasRendering = false,
+}: AnnotationsPluginProps) => {
+  const theme = useTheme2();
+  const plotInstance = useRef<uPlot>();
 
-export const AnnotationsPlugin: React.FC<AnnotationsPluginProps> = ({ annotations, timeZone }) => {
-  const pluginId = 'AnnotationsPlugin';
-  const plotCtx = usePlotContext();
-
-  const theme = useTheme();
   const annotationsRef = useRef<Array<DataFrameView<AnnotationsDataFrameViewDTO>>>();
 
-  const timeFormatter = useCallback(
-    (value: number) => {
-      return dateTimeFormat(value, {
-        format: systemDateFormats.fullDate,
-        timeZone,
-      });
-    },
-    [timeZone]
-  );
-
+  // Update annotations views when new annotations came
   useEffect(() => {
-    if (plotCtx.isPlotReady) {
-      const views: Array<DataFrameView<AnnotationsDataFrameViewDTO>> = [];
+    const views: Array<DataFrameView<AnnotationsDataFrameViewDTO>> = [];
 
-      for (const frame of annotations) {
-        views.push(new DataFrameView(frame));
-      }
-
-      annotationsRef.current = views;
+    for (const frame of annotations) {
+      views.push(new DataFrameView(frame));
     }
-  }, [plotCtx.isPlotReady, annotations]);
 
-  useEffect(() => {
-    const unregister = plotCtx.registerPlugin({
-      id: pluginId,
-      hooks: {
-        // Render annotation lines on the canvas
-        draw: (u) => {
-          /**
-           * We cannot rely on state value here, as it would require this effect to be dependent on the state value.
-           * This would make the plugin re-register making the entire plot to reinitialise. ref is the way to go :)
-           */
-          if (!annotationsRef.current) {
-            return null;
-          }
-
-          const ctx = u.ctx;
-          if (!ctx) {
-            return;
-          }
-          for (let i = 0; i < annotationsRef.current.length; i++) {
-            const annotationsView = annotationsRef.current[i];
-            for (let j = 0; j < annotationsView.length; j++) {
-              const annotation = annotationsView.get(j);
-
-              if (!annotation.time) {
-                continue;
-              }
-
-              const xpos = u.valToPos(annotation.time, 'x', true);
-              ctx.beginPath();
-              ctx.lineWidth = 2;
-              ctx.strokeStyle = theme.palette.red;
-              ctx.setLineDash([5, 5]);
-              ctx.moveTo(xpos, u.bbox.top);
-              ctx.lineTo(xpos, u.bbox.top + u.bbox.height);
-              ctx.stroke();
-              ctx.closePath();
-            }
-          }
-          return;
-        },
-      },
-    });
+    annotationsRef.current = views;
 
     return () => {
-      unregister();
+      // clear on unmount
+      annotationsRef.current = [];
+    };
+  }, [annotations]);
+
+  useLayoutEffect(() => {
+    config.addHook('init', (u) => {
+      plotInstance.current = u;
+    });
+
+    config.addHook('draw', (u) => {
+      // Render annotation lines on the canvas
+      /**
+       * We cannot rely on state value here, as it would require this effect to be dependent on the state value.
+       */
+      if (!annotationsRef.current) {
+        return null;
+      }
+
+      const ctx = u.ctx;
+      if (!ctx) {
+        return;
+      }
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(u.bbox.left, u.bbox.top, u.bbox.width, u.bbox.height);
+      ctx.clip();
+
+      const renderLine = (x: number, color: string) => {
+        ctx.beginPath();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = color;
+        ctx.setLineDash([5, 5]);
+        ctx.moveTo(x, u.bbox.top);
+        ctx.lineTo(x, u.bbox.top + u.bbox.height);
+        ctx.stroke();
+        ctx.closePath();
+      };
+
+      if (!disableCanvasRendering) {
+        for (let i = 0; i < annotationsRef.current.length; i++) {
+          const annotationsView = annotationsRef.current[i];
+          for (let j = 0; j < annotationsView.length; j++) {
+            const annotation = annotationsView.get(j);
+
+            if (!annotation.time) {
+              continue;
+            }
+
+            let x0 = u.valToPos(annotation.time, 'x', true);
+            const color = theme.visualization.getColorByName(annotation.color);
+
+            renderLine(x0, color);
+
+            if (annotation.isRegion && annotation.timeEnd) {
+              let x1 = u.valToPos(annotation.timeEnd, 'x', true);
+
+              renderLine(x1, color);
+
+              ctx.fillStyle = colorManipulator.alpha(color, 0.1);
+              ctx.rect(x0, u.bbox.top, x1 - x0, u.bbox.height);
+              ctx.fill();
+            }
+          }
+        }
+      }
+
+      ctx.restore();
+      return;
+    });
+  }, [config, theme, disableCanvasRendering]);
+
+  const mapAnnotationToXYCoords = useCallback((frame: DataFrame, dataFrameFieldIndex: DataFrameFieldIndex) => {
+    const view = new DataFrameView<AnnotationsDataFrameViewDTO>(frame);
+    const annotation = view.get(dataFrameFieldIndex.fieldIndex);
+
+    if (!annotation.time || !plotInstance.current) {
+      return undefined;
+    }
+    let x = plotInstance.current.valToPos(annotation.time, 'x');
+
+    if (x < 0) {
+      x = 0;
+    }
+    return {
+      x,
+      y: plotInstance.current.bbox.height / window.devicePixelRatio + 4,
     };
   }, []);
 
-  const mapAnnotationToXYCoords = useCallback(
-    (frame: DataFrame, index: number) => {
+  const renderMarker = useCallback(
+    (frame: DataFrame, dataFrameFieldIndex: DataFrameFieldIndex) => {
+      let width = 0;
       const view = new DataFrameView<AnnotationsDataFrameViewDTO>(frame);
-      const annotation = view.get(index);
-      const plotInstance = plotCtx.getPlotInstance();
-      if (!annotation.time || !plotInstance) {
-        return undefined;
+      const annotation = view.get(dataFrameFieldIndex.fieldIndex);
+      const isRegionAnnotation = Boolean(annotation.isRegion);
+
+      if (isRegionAnnotation && plotInstance.current) {
+        let x0 = plotInstance.current.valToPos(annotation.time, 'x');
+        let x1 = plotInstance.current.valToPos(annotation.timeEnd, 'x');
+
+        // markers are rendered relatively to uPlot canvas overly, not caring about axes width
+        if (x0 < 0) {
+          x0 = 0;
+        }
+
+        if (x1 > plotInstance.current.bbox.width / window.devicePixelRatio) {
+          x1 = plotInstance.current.bbox.width / window.devicePixelRatio;
+        }
+        width = x1 - x0;
       }
 
-      return {
-        x: plotInstance.valToPos(annotation.time, 'x'),
-        y: plotInstance.bbox.height / window.devicePixelRatio + 4,
-      };
+      return <AnnotationMarker annotation={annotation} timeZone={timeZone} width={width} />;
     },
-    [plotCtx.getPlotInstance]
-  );
-
-  const renderMarker = useCallback(
-    (frame: DataFrame, index: number) => {
-      const view = new DataFrameView<AnnotationsDataFrameViewDTO>(frame);
-      const annotation = view.get(index);
-      return <AnnotationMarker time={timeFormatter(annotation.time)} text={annotation.text} tags={annotation.tags} />;
-    },
-    [timeFormatter]
+    [timeZone]
   );
 
   return (
     <EventsCanvas
       id="annotations"
+      config={config}
       events={annotations}
       renderEventMarker={renderMarker}
       mapEventToXYCoords={mapAnnotationToXYCoords}

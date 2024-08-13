@@ -1,52 +1,100 @@
-+++
-title = "Alerts"
-aliases = ["/docs/grafana/latest/alerting/rules/", "/docs/grafana/latest/alerting/metrics/"]
-weight = 110
-+++
+---
+aliases:
+  - about-alerting/
+  - ./unified-alerting/alerting/
+  - ./alerting/unified-alerting/
+canonical: https://grafana.com/docs/grafana/latest/alerting/
+description: Learn about the key benefits and features of Grafana Alerting
+labels:
+  products:
+    - cloud
+    - enterprise
+    - oss
+title: Alerting
+weight: 114
+---
 
-# Alerts overview
+# Alerting
 
-Alerts allow you to identify problems in your system moments after they occur. By quickly identifying unintended changes in your system, you can minimize disruptions to your services.
+Grafana Alerting allows you to learn about problems in your systems moments after they occur.
 
-Alerts consists of two parts:
+Monitor your incoming metrics data or log entries and set up your Alerting system to watch for specific events or circumstances and then send notifications when those things are found.
 
-- Alert rules - When the alert is triggered. Alert rules are defined by one or more conditions that are regularly evaluated by Grafana.
-- Notification channel - How the alert is delivered. When the conditions of an alert rule are met, the Grafana notifies the channels configured for that alert.
+In this way, you eliminate the need for manual monitoring and provide a first line of defense against system outages or changes that could turn into major incidents.
 
-Currently only the graph panel visualization supports alerts.
+Using Grafana Alerting, you create queries and expressions from multiple data sources — no matter where your data is stored — giving you the flexibility to combine your data and alert on your metrics and logs in new and unique ways. You can then create, manage, and take action on your alerts from a single, consolidated view, and improve your team’s ability to identify and resolve issues quickly.
 
-## Alert tasks
+Grafana Alerting is available for Grafana OSS, Grafana Enterprise, or Grafana Cloud. With Mimir and Loki alert rules you can run alert expressions closer to your data and at massive scale, all managed by the Grafana UI you are already familiar with.
 
-You can perform the following tasks for alerts:
+Watch this video to learn more about Grafana Alerting: {{< vimeo 720001629 >}}
 
-- [Add or edit an alert notification channel]({{< relref "notifications.md" >}})
-- [Create an alert rule]({{< relref "create-alerts.md" >}})
-- [View existing alert rules and their current state]({{< relref "view-alerts.md" >}})
-- [Test alert rules and troubleshoot]({{< relref "troubleshoot-alerts.md" >}})
+_Refer to [Manage your alert rules][alerting-rules] for current instructions._
 
-## Clustering
+## Key features and benefits
 
-Currently alerting supports a limited form of high availability. Since v4.2.0 of Grafana, alert notifications are deduped when running multiple servers. This means all alerts are executed on every server but no duplicate alert notifications are sent due to the deduping logic. Proper load balancing of alerts will be introduced in the future.
+**One page for all alerts**
 
-## Notifications
+A single Grafana Alerting page consolidates both Grafana-managed alerts and alerts that reside in your Prometheus-compatible data source in one single place.
 
-You can also set alert rule notifications along with a detailed message about the alert rule. The message can contain anything: information about how you might solve the issue, link to runbook, and so on.
+**Multi-dimensional alerts**
 
-The actual notifications are configured and shared between multiple alerts.
+Alert rules can create multiple individual alert instances per alert rule, known as multi-dimensional alerts, giving you the power and flexibility to gain visibility into your entire system with just a single alert rule. You do this by adding labels to your query to specify which component is being monitored and generate multiple alert instances for a single alert rule. For example, if you want to monitor each server in a cluster, a multi-dimensional alert will alert on each CPU, whereas a standard alert will alert on the overall server.
 
-## Alert execution
+**Route alerts**
 
-Alert rules are evaluated in the Grafana backend in a scheduler and query execution engine that is part
-of core Grafana. Only some data sources are supported right now. They include `Graphite`, `Prometheus`, `Loki`, `InfluxDB`, `Elasticsearch`,
-`Google Cloud Monitoring`, `Cloudwatch`, `Azure Monitor`, `MySQL`, `PostgreSQL`, `MSSQL`, `OpenTSDB`, `Oracle`, and `Azure Data Explorer`.
+Route each alert instance to a specific contact point based on labels you define. Notification policies are the set of rules for where, when, and how the alerts are routed to contact points.
 
-## Metrics from the alert engine
+**Silence alerts**
 
-The alert engine publishes some internal metrics about itself. You can read more about how Grafana publishes [internal metrics]({{< relref "../administration/view-server/internal-metrics.md" >}}).
+Silences stop notifications from getting created and last for only a specified window of time.
+Silences allow you to stop receiving persistent notifications from one or more alert rules. You can also partially pause an alert based on certain criteria. Silences have their own dedicated section for better organization and visibility, so that you can scan your paused alert rules without cluttering the main alerting view.
 
-Description | Type | Metric name
----------- | ----------- | ----------
-Total number of alerts | counter | `alerting.active_alerts`
-Alert execution result | counter | `alerting.result`
-Notifications sent counter | counter | `alerting.notifications_sent`
-Alert execution timer | timer | `alerting.execution_time`
+**Mute timings**
+
+A mute timing is a recurring interval of time when no new notifications for a policy are generated or sent. Use them to prevent alerts from firing a specific and reoccurring period, for example, a regular maintenance period.
+
+Similar to silences, mute timings do not prevent alert rules from being evaluated, nor do they stop alert instances from being shown in the user interface. They only prevent notifications from being created.
+
+## Design your Alerting system
+
+Monitoring complex IT systems and understanding whether everything is up and running correctly is a difficult task. Setting up an effective alert management system is therefore essential to inform you when things are going wrong before they start to impact your business outcomes.
+
+Designing and configuring an alert management set up that works takes time.
+
+Here are some tips on how to create an effective alert management set up for your business:
+
+**Which are the key metrics for your business that you want to monitor and alert on?**
+
+- Find events that are important to know about and not so trivial or frequent that recipients ignore them.
+
+- Alerts should only be created for big events that require immediate attention or intervention.
+
+- Consider quality over quantity.
+
+**Which type of Alerting do you want to use?**
+
+- Choose between Grafana-managed Alerting or Grafana Mimir or Loki-managed Alerting; or both.
+
+**How do you want to organize your alerts and notifications?**
+
+- Be selective about who you set to receive alerts. Consider sending them to whoever is on call or a specific Slack channel.
+- Automate as far as possible using the Alerting API or alerts as code (Terraform).
+
+**How can you reduce alert fatigue?**
+
+- Avoid noisy, unnecessary alerts by using silences, mute timings, or pausing alert rule evaluation.
+- Continually tune your alert rules to review effectiveness. Remove alert rules to avoid duplication or ineffective alerts.
+- Think carefully about priority and severity levels.
+- Continually review your thresholds and evaluation rules.
+
+## Useful links
+
+- [Introduction to Alerting][fundamentals]
+
+{{% docs/reference %}}
+[alerting-rules]: "/docs/grafana/ -> /docs/grafana/<GRAFANA VERSION>/alerting/alerting-rules"
+[alerting-rules]: "/docs/grafana-cloud/ -> /docs/grafana-cloud/alerting-and-irm/alerting/alerting-rules"
+
+[fundamentals]: "/docs/grafana/ -> /docs/grafana/<GRAFANA VERSION>/alerting/fundamentals"
+[fundamentals]: "/docs/grafana-cloud/ -> /docs/grafana-cloud/alerting-and-irm/alerting/fundamentals"
+{{% /docs/reference %}}

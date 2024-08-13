@@ -1,10 +1,11 @@
-// Libraries
-import _ from 'lodash';
-
-// Utils
-import { getBackendSrv, locationService } from '@grafana/runtime';
-import { locationUtil, urlUtil, rangeUtil } from '@grafana/data';
 import { Location } from 'history';
+import { pickBy } from 'lodash';
+
+import { locationUtil, urlUtil, rangeUtil } from '@grafana/data';
+import { locationService } from '@grafana/runtime';
+
+import { getPlaylistAPI, loadDashboards } from './api';
+import { PlaylistAPI } from './types';
 
 export const queryParamsToPreserve: { [key: string]: boolean } = {
   kiosk: true,
@@ -13,25 +14,27 @@ export const queryParamsToPreserve: { [key: string]: boolean } = {
 };
 
 export class PlaylistSrv {
-  private nextTimeoutId: any;
-  private dashboards: Array<{ url: string }>;
-  private index: number;
-  private interval: number;
-  private startUrl: string;
+  private nextTimeoutId: ReturnType<typeof setTimeout> | undefined;
+  private urls: string[] = []; // the URLs we need to load
+  private index = 0;
+  private declare interval: number;
+  private declare startUrl: string;
   private numberOfLoops = 0;
-  private validPlaylistUrl: string;
+  private declare validPlaylistUrl: string;
   private locationListenerUnsub?: () => void;
+  private api: PlaylistAPI;
 
-  isPlaying: boolean;
+  isPlaying = false;
 
   constructor() {
     this.locationUpdated = this.locationUpdated.bind(this);
+    this.api = getPlaylistAPI();
   }
 
   next() {
     clearTimeout(this.nextTimeoutId);
 
-    const playedAllDashboards = this.index > this.dashboards.length - 1;
+    const playedAllDashboards = this.index > this.urls.length - 1;
     if (playedAllDashboards) {
       this.numberOfLoops++;
 
@@ -44,10 +47,10 @@ export class PlaylistSrv {
       this.index = 0;
     }
 
-    const dash = this.dashboards[this.index];
+    const url = this.urls[this.index];
     const queryParams = locationService.getSearchObject();
-    const filteredParams = _.pickBy(queryParams, (value: any, key: string) => queryParamsToPreserve[key]);
-    const nextDashboardUrl = locationUtil.stripBaseFromUrl(dash.url);
+    const filteredParams = pickBy(queryParams, (value: unknown, key: string) => queryParamsToPreserve[key]);
+    const nextDashboardUrl = locationUtil.stripBaseFromUrl(url);
 
     this.index++;
     this.validPlaylistUrl = nextDashboardUrl;
@@ -68,7 +71,7 @@ export class PlaylistSrv {
     }
   }
 
-  start(playlistId: number) {
+  async start(playlistUid: string) {
     this.stop();
 
     this.startUrl = window.location.href;
@@ -78,17 +81,31 @@ export class PlaylistSrv {
     // setup location tracking
     this.locationListenerUnsub = locationService.getHistory().listen(this.locationUpdated);
 
-    return getBackendSrv()
-      .get(`/api/playlists/${playlistId}`)
-      .then((playlist: any) => {
-        return getBackendSrv()
-          .get(`/api/playlists/${playlistId}/dashboards`)
-          .then((dashboards: any) => {
-            this.dashboards = dashboards;
-            this.interval = rangeUtil.intervalToMs(playlist.interval);
-            this.next();
-          });
-      });
+    const urls: string[] = [];
+    let playlist = await this.api.getPlaylist(playlistUid);
+    if (!playlist.items?.length) {
+      // alert
+      return;
+    }
+    this.interval = rangeUtil.intervalToMs(playlist.interval);
+
+    const items = await loadDashboards(playlist.items);
+    for (const item of items) {
+      if (item.dashboards) {
+        for (const dash of item.dashboards) {
+          urls.push(dash.url);
+        }
+      }
+    }
+
+    if (!urls.length) {
+      // alert... not found, etc
+      return;
+    }
+    this.urls = urls;
+    this.isPlaying = true;
+    this.next();
+    return;
   }
 
   stop() {

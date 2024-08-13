@@ -1,23 +1,37 @@
+import { css } from '@emotion/css';
+import { sumBy } from 'lodash';
 import React from 'react';
-import { css } from 'emotion';
-import sumBy from 'lodash/sumBy';
-import { Modal, ConfirmModal, HorizontalGroup, Button } from '@grafana/ui';
-import { DashboardModel, PanelModel } from '../../state';
-import { useDashboardDelete } from './useDashboardDelete';
+import { connect, ConnectedProps } from 'react-redux';
 import useAsyncFn from 'react-use/lib/useAsyncFn';
+
+import { locationService } from '@grafana/runtime';
+import { Modal, ConfirmModal, Button } from '@grafana/ui';
+import { config } from 'app/core/config';
+import { DashboardModel, PanelModel } from 'app/features/dashboard/state';
+import { cleanUpDashboardAndVariables } from 'app/features/dashboard/state/actions';
+import { deleteDashboard } from 'app/features/manage-dashboards/state/actions';
 
 type DeleteDashboardModalProps = {
   hideModal(): void;
   dashboard: DashboardModel;
 };
 
-export const DeleteDashboardModal: React.FC<DeleteDashboardModalProps> = ({ hideModal, dashboard }) => {
+const mapDispatchToProps = {
+  cleanUpDashboardAndVariables,
+};
+
+const connector = connect(null, mapDispatchToProps);
+
+type Props = DeleteDashboardModalProps & ConnectedProps<typeof connector>;
+
+const DeleteDashboardModalUnconnected = ({ hideModal, cleanUpDashboardAndVariables, dashboard }: Props) => {
   const isProvisioned = dashboard.meta.provisioned;
-  const { onDeleteDashboard } = useDashboardDelete(dashboard.uid);
 
   const [, onConfirm] = useAsyncFn(async () => {
-    await onDeleteDashboard();
+    await deleteDashboard(dashboard.uid, true);
+    cleanUpDashboardAndVariables();
     hideModal();
+    locationService.replace('/');
   }, [hideModal]);
 
   const modalBody = getModalBody(dashboard.panels, dashboard.title);
@@ -41,12 +55,12 @@ export const DeleteDashboardModal: React.FC<DeleteDashboardModalProps> = ({ hide
 
 const getModalBody = (panels: PanelModel[], title: string) => {
   const totalAlerts = sumBy(panels, (panel) => (panel.alert ? 1 : 0));
-  return totalAlerts > 0 ? (
+  return totalAlerts > 0 && !config.unifiedAlertingEnabled ? (
     <>
       <p>Do you want to delete this dashboard?</p>
       <p>
-        This dashboard contains {totalAlerts} alert{totalAlerts > 1 ? 's' : ''}. Deleting this dashboard will also
-        delete those alerts
+        This dashboard contains {totalAlerts} alert{totalAlerts > 1 ? 's' : ''}. Deleting this dashboard also deletes
+        those alerts.
       </p>
     </>
   ) : (
@@ -64,20 +78,19 @@ const ProvisionedDeleteModal = ({ hideModal, provisionedId }: { hideModal(): voi
     icon="trash-alt"
     onDismiss={hideModal}
     className={css`
-      text-align: center;
       width: 500px;
     `}
   >
     <p>
-      This dashboard is managed by Grafanas provisioning and cannot be deleted. Remove the dashboard from the config
-      file to delete it.
+      This dashboard is managed by Grafana provisioning and cannot be deleted. Remove the dashboard from the config file
+      to delete it.
     </p>
     <p>
       <i>
         See{' '}
         <a
           className="external-link"
-          href="http://docs.grafana.org/administration/provisioning/#dashboards"
+          href="https://grafana.com/docs/grafana/latest/administration/provisioning/#dashboards"
           target="_blank"
           rel="noreferrer"
         >
@@ -88,10 +101,12 @@ const ProvisionedDeleteModal = ({ hideModal, provisionedId }: { hideModal(): voi
       <br />
       File path: {provisionedId}
     </p>
-    <HorizontalGroup justify="center">
-      <Button variant="secondary" onClick={hideModal}>
+    <Modal.ButtonRow>
+      <Button variant="primary" onClick={hideModal}>
         OK
       </Button>
-    </HorizontalGroup>
+    </Modal.ButtonRow>
   </Modal>
 );
+
+export const DeleteDashboardModal = connector(DeleteDashboardModalUnconnected);

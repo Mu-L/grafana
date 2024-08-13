@@ -1,214 +1,387 @@
+import { css, cx } from '@emotion/css';
+import React, { CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
+import { usePopper } from 'react-popper';
+
 import {
   DataFrame,
+  DataFrameFieldIndex,
   dateTimeFormat,
   Field,
   FieldType,
-  GrafanaTheme,
+  formattedValueToString,
+  GrafanaTheme2,
   LinkModel,
   systemDateFormats,
   TimeZone,
 } from '@grafana/data';
-import { FieldLinkList, Portal, TooltipContainer, useStyles } from '@grafana/ui';
-import { css, cx } from 'emotion';
-import React, { useCallback, useRef, useState } from 'react';
+import { selectors } from '@grafana/e2e-selectors';
+import { config as runtimeConfig } from '@grafana/runtime';
+import { FieldLinkList, Portal, UPlotConfigBuilder, useStyles2 } from '@grafana/ui';
+import { DisplayValue } from 'app/features/visualization/data-hover/DataHoverView';
+import { ExemplarHoverView } from 'app/features/visualization/data-hover/ExemplarHoverView';
+
+import { ExemplarModalHeader } from '../../heatmap/ExemplarModalHeader';
 
 interface ExemplarMarkerProps {
   timeZone: TimeZone;
   dataFrame: DataFrame;
-  index: number;
-  getFieldLinks: (field: Field, rowIndex: number) => Array<LinkModel<Field>>;
+  dataFrameFieldIndex: DataFrameFieldIndex;
+  config: UPlotConfigBuilder;
+  exemplarColor?: string;
+  clickedExemplarFieldIndex: DataFrameFieldIndex | undefined;
+  setClickedExemplarFieldIndex: React.Dispatch<DataFrameFieldIndex | undefined>;
 }
 
-export const ExemplarMarker: React.FC<ExemplarMarkerProps> = ({ timeZone, dataFrame, index, getFieldLinks }) => {
-  const styles = useStyles(getExemplarMarkerStyles);
+export const ExemplarMarker = ({
+  timeZone,
+  dataFrame,
+  dataFrameFieldIndex,
+  config,
+  exemplarColor,
+  clickedExemplarFieldIndex,
+  setClickedExemplarFieldIndex,
+}: ExemplarMarkerProps) => {
+  const styles = useStyles2(getExemplarMarkerStyles);
   const [isOpen, setIsOpen] = useState(false);
-  const markerRef = useRef<HTMLDivElement>(null);
-  const annotationPopoverRef = useRef<HTMLDivElement>(null);
-  const popoverRenderTimeout = useRef<NodeJS.Timer>();
+  const [isLocked, setIsLocked] = useState(false);
+  const [markerElement, setMarkerElement] = React.useState<HTMLDivElement | null>(null);
+  const [popperElement, setPopperElement] = React.useState<HTMLDivElement | null>(null);
+  const { styles: popperStyles, attributes } = usePopper(markerElement, popperElement, {
+    modifiers: [
+      {
+        name: 'preventOverflow',
+        options: {
+          altAxis: true,
+        },
+      },
+      {
+        name: 'flip',
+        options: {
+          fallbackPlacements: ['top', 'left-start'],
+        },
+      },
+    ],
+  });
+  const popoverRenderTimeout = useRef<NodeJS.Timeout>();
 
-  const timeFormatter = useCallback(
-    (value: number) => {
-      return dateTimeFormat(value, {
-        format: systemDateFormats.fullDate,
-        timeZone,
-      });
-    },
-    [timeZone]
-  );
+  useEffect(() => {
+    if (
+      !(
+        clickedExemplarFieldIndex?.fieldIndex === dataFrameFieldIndex.fieldIndex &&
+        clickedExemplarFieldIndex?.frameIndex === dataFrameFieldIndex.frameIndex
+      )
+    ) {
+      setIsLocked(false);
+    }
+  }, [clickedExemplarFieldIndex, dataFrameFieldIndex]);
+
+  const getSymbol = () => {
+    const symbols = [
+      <rect
+        fill={exemplarColor}
+        key="diamond"
+        x="3.38672"
+        width="4.78985"
+        height="4.78985"
+        transform="rotate(45 3.38672 0)"
+      />,
+      <path
+        fill={exemplarColor}
+        key="x"
+        d="M1.94444 3.49988L0 5.44432L1.55552 6.99984L3.49996 5.05539L5.4444 6.99983L6.99992 5.44431L5.05548 3.49988L6.99983 1.55552L5.44431 0L3.49996 1.94436L1.5556 0L8.42584e-05 1.55552L1.94444 3.49988Z"
+      />,
+      <path fill={exemplarColor} key="triangle" d="M4 0L7.4641 6H0.535898L4 0Z" />,
+      <rect fill={exemplarColor} key="rectangle" width="5" height="5" />,
+      <path
+        fill={exemplarColor}
+        key="pentagon"
+        d="M3 0.5L5.85317 2.57295L4.76336 5.92705H1.23664L0.146831 2.57295L3 0.5Z"
+      />,
+      <path
+        fill={exemplarColor}
+        key="plus"
+        d="m2.35672,4.2425l0,2.357l1.88558,0l0,-2.357l2.3572,0l0,-1.88558l-2.3572,0l0,-2.35692l-1.88558,0l0,2.35692l-2.35672,0l0,1.88558l2.35672,0z"
+      />,
+    ];
+
+    return symbols[dataFrameFieldIndex.frameIndex % symbols.length];
+  };
 
   const onMouseEnter = useCallback(() => {
-    if (popoverRenderTimeout.current) {
-      clearTimeout(popoverRenderTimeout.current);
+    if (clickedExemplarFieldIndex === undefined) {
+      if (popoverRenderTimeout.current) {
+        clearTimeout(popoverRenderTimeout.current);
+      }
+      setIsOpen(true);
     }
-    setIsOpen(true);
-  }, [setIsOpen]);
+  }, [setIsOpen, clickedExemplarFieldIndex]);
+
+  const lockExemplarModal = () => {
+    setIsLocked(true);
+  };
 
   const onMouseLeave = useCallback(() => {
     popoverRenderTimeout.current = setTimeout(() => {
       setIsOpen(false);
-    }, 100);
+    }, 150);
   }, [setIsOpen]);
 
   const renderMarker = useCallback(() => {
-    if (!markerRef?.current) {
-      return null;
-    }
+    //Put fields with links on the top
+    const fieldsWithLinks =
+      dataFrame.fields.filter((field) => field.config.links?.length && field.config.links?.length > 0) || [];
+    const orderedDataFrameFields = [
+      ...fieldsWithLinks,
+      ...dataFrame.fields.filter((field) => !fieldsWithLinks.includes(field)),
+    ];
 
-    const el = markerRef.current;
-    const elBBox = el.getBoundingClientRect();
+    const timeFormatter = (value: number) => {
+      return dateTimeFormat(value, {
+        format: systemDateFormats.fullDate,
+        timeZone,
+      });
+    };
+
+    const onClose = () => {
+      setIsLocked(false);
+      setIsOpen(false);
+      setClickedExemplarFieldIndex(undefined);
+    };
+
+    let displayValues: DisplayValue[] = [];
+    let links: LinkModel[] | undefined = [];
+    orderedDataFrameFields.map((field: Field, i) => {
+      const value = field.values[dataFrameFieldIndex.fieldIndex];
+
+      if (field.config.links?.length) {
+        links?.push(...(field.getLinks?.({ valueRowIndex: dataFrameFieldIndex.fieldIndex }) || []));
+      }
+
+      const fieldDisplay = field.display ? field.display(value) : { text: `${value}`, numeric: +value };
+
+      displayValues.push({
+        name: field.name,
+        value,
+        valueString: formattedValueToString(fieldDisplay),
+        highlight: false,
+      });
+    });
+
+    const exemplarHeaderCustomStyle: CSSProperties = {
+      position: 'relative',
+      top: '35px',
+      right: '5px',
+      marginRight: 0,
+    };
+
+    const getExemplarMarkerContent = () => {
+      if (runtimeConfig.featureToggles.newVizTooltips) {
+        return (
+          <>
+            {isLocked && <ExemplarModalHeader onClick={onClose} style={exemplarHeaderCustomStyle} />}
+            <ExemplarHoverView displayValues={displayValues} links={links} />
+          </>
+        );
+      } else {
+        return (
+          <div className={styles.wrapper}>
+            {isLocked && <ExemplarModalHeader onClick={onClose} />}
+            <div className={styles.body}>
+              <div className={styles.header}>
+                <span className={styles.title}>Exemplars</span>
+              </div>
+              <div>
+                <table className={styles.exemplarsTable}>
+                  <tbody>
+                    {orderedDataFrameFields.map((field: Field, i) => {
+                      const value = field.values[dataFrameFieldIndex.fieldIndex];
+                      const links = field.config.links?.length
+                        ? field.getLinks?.({ valueRowIndex: dataFrameFieldIndex.fieldIndex })
+                        : undefined;
+                      return (
+                        <tr key={i}>
+                          <td valign="top">{field.name}</td>
+                          <td>
+                            <div className={styles.valueWrapper}>
+                              <span>{field.type === FieldType.time ? timeFormatter(value) : value}</span>
+                              {links && <FieldLinkList links={links} />}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      }
+    };
 
     return (
-      <TooltipContainer
-        position={{ x: elBBox.left, y: elBBox.top + elBBox.height }}
-        offset={{ x: 0, y: 0 }}
+      <div
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
         className={styles.tooltip}
+        ref={setPopperElement}
+        style={popperStyles.popper}
+        {...attributes.popper}
       >
-        <div ref={annotationPopoverRef} className={styles.wrapper}>
-          <div className={styles.header}>
-            <span className={styles.title}>Exemplar</span>
-          </div>
-          <div className={styles.body}>
-            <div>
-              <table className={styles.exemplarsTable}>
-                <tbody>
-                  {dataFrame.fields.map((field, i) => {
-                    const value = field.values.get(index);
-                    const links = field.config.links?.length ? getFieldLinks(field, index) : undefined;
-                    return (
-                      <tr key={i}>
-                        <td valign="top">{field.name}</td>
-                        <td>
-                          <div className={styles.valueWrapper}>
-                            <span>{field.type === FieldType.time ? timeFormatter(value) : value}</span>
-                            {links && <FieldLinkList links={links} />}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </TooltipContainer>
+        {getExemplarMarkerContent()}
+      </div>
     );
-  }, [dataFrame.fields, getFieldLinks, index, onMouseEnter, onMouseLeave, styles, timeFormatter]);
+  }, [
+    attributes.popper,
+    dataFrame.fields,
+    dataFrameFieldIndex,
+    onMouseEnter,
+    onMouseLeave,
+    popperStyles.popper,
+    styles,
+    timeZone,
+    isLocked,
+    setClickedExemplarFieldIndex,
+  ]);
+
+  const seriesColor = config
+    .getSeries()
+    .find((s) => s.props.dataFrameFieldIndex?.frameIndex === dataFrameFieldIndex.frameIndex)?.props.lineColor;
+
+  const onExemplarClick = () => {
+    setClickedExemplarFieldIndex(dataFrameFieldIndex);
+    lockExemplarModal();
+  };
 
   return (
     <>
-      <div ref={markerRef} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className={styles.markerWrapper}>
-        <svg viewBox="0 0 599 599" width="8" height="8" className={cx(styles.marble, isOpen && styles.activeMarble)}>
-          <path d="M 300,575 L 575,300 L 300,25 L 25,300 L 300,575 Z" />
+      <div
+        ref={setMarkerElement}
+        onClick={onExemplarClick}
+        onKeyDown={(e: React.KeyboardEvent) => {
+          if (e.key === 'Enter') {
+            onExemplarClick();
+          }
+        }}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        className={styles.markerWrapper}
+        data-testid={selectors.components.DataSource.Prometheus.exemplarMarker}
+        role="button"
+        tabIndex={0}
+      >
+        <svg
+          viewBox="0 0 7 7"
+          width="7"
+          height="7"
+          style={{ fill: seriesColor }}
+          className={cx(styles.marble, (isOpen || isLocked) && styles.activeMarble)}
+        >
+          {getSymbol()}
         </svg>
       </div>
-      {isOpen && <Portal>{renderMarker()}</Portal>}
+      {(isOpen || isLocked) && <Portal>{renderMarker()}</Portal>}
     </>
   );
 };
 
-const getExemplarMarkerStyles = (theme: GrafanaTheme) => {
-  const bg = theme.isDark ? theme.palette.dark2 : theme.palette.white;
-  const headerBg = theme.isDark ? theme.palette.dark9 : theme.palette.gray5;
-  const shadowColor = theme.isDark ? theme.palette.black : theme.palette.white;
-  const marbleFill = theme.isDark ? theme.palette.gray3 : theme.palette.gray1;
-  const marbleFillHover = theme.isDark ? theme.palette.blue85 : theme.palette.blue77;
-  const tableBgOdd = theme.isDark ? theme.palette.dark3 : theme.palette.gray6;
-
-  const marble = css`
-    display: block;
-    fill: ${marbleFill};
-    transition: transform 0.15s ease-out;
-  `;
-  const activeMarble = css`
-    fill: ${marbleFillHover};
-    transform: scale(1.3);
-    filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.5));
-  `;
+const getExemplarMarkerStyles = (theme: GrafanaTheme2) => {
+  const bg = theme.isDark ? theme.v1.palette.dark2 : theme.v1.palette.white;
+  const headerBg = theme.isDark ? theme.v1.palette.dark9 : theme.v1.palette.gray5;
+  const shadowColor = theme.isDark ? theme.v1.palette.black : theme.v1.palette.white;
+  const tableBgOdd = theme.isDark ? theme.v1.palette.dark3 : theme.v1.palette.gray6;
 
   return {
-    markerWrapper: css`
-      padding: 0 4px 4px 4px;
-      width: 8px;
-      height: 8px;
-      box-sizing: content-box;
-
-      &:hover {
-        > svg {
-          ${activeMarble}
-        }
-      }
-    `,
-    marker: css`
-      width: 0;
-      height: 0;
-      border-left: 4px solid transparent;
-      border-right: 4px solid transparent;
-      border-bottom: 4px solid ${theme.palette.red};
-      pointer-events: none;
-    `,
-    wrapper: css`
-      background: ${bg};
-      border: 1px solid ${headerBg};
-      border-radius: ${theme.border.radius.md};
-      box-shadow: 0 0 20px ${shadowColor};
-    `,
-    exemplarsTable: css`
-      width: 100%;
-
-      tr td {
-        padding: 5px 10px;
-        white-space: nowrap;
-        border-bottom: 4px solid ${theme.colors.panelBg};
-      }
-
-      tr {
-        background-color: ${theme.colors.bg1};
-        &:nth-child(even) {
-          background-color: ${tableBgOdd};
-        }
-      }
-    `,
-    valueWrapper: css`
-      display: flex;
-      flex-direction: row;
-      flex-wrap: wrap;
-      column-gap: ${theme.spacing.sm};
-
-      > span {
-        flex-grow: 0;
-      }
-
-      > * {
-        flex: 1 1;
-        align-self: center;
-      }
-    `,
-    tooltip: css`
-      background: none;
-      padding: 0;
-    `,
-    header: css`
-      background: ${headerBg};
-      padding: 6px 10px;
-      display: flex;
-    `,
-    title: css`
-      font-weight: ${theme.typography.weight.semibold};
-      padding-right: ${theme.spacing.md};
-      overflow: hidden;
-      display: inline-block;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-      flex-grow: 1;
-    `,
-    body: css`
-      padding: ${theme.spacing.sm};
-      font-weight: ${theme.typography.weight.semibold};
-    `,
-    marble,
-    activeMarble,
+    markerWrapper: css({
+      padding: '0 4px 4px 4px',
+      width: '8px',
+      height: '8px',
+      boxSizing: 'content-box',
+      transform: 'translate3d(-50%, 0, 0)',
+      '&:hover': {
+        '> svg': {
+          transform: 'scale(1.3)',
+          opacity: 1,
+          filter: 'drop-shadow(0 0 8px rgba(0, 0, 0, 0.5))',
+        },
+      },
+    }),
+    marker: css({
+      width: 0,
+      height: 0,
+      borderLeft: '4px solid transparent',
+      borderRight: '4px solid transparent',
+      borderBottom: `4px solid ${theme.v1.palette.red}`,
+      pointerEvents: 'none',
+    }),
+    wrapper: css({
+      background: bg,
+      border: `1px solid ${headerBg}`,
+      borderRadius: theme.shape.borderRadius(2),
+      boxShadow: `0 0 20px ${shadowColor}`,
+      padding: theme.spacing(1),
+    }),
+    exemplarsTable: css({
+      width: '100%',
+      'tr td': {
+        padding: '5px 10px',
+        whiteSpace: 'nowrap',
+        borderBottom: `4px solid ${theme.components.panel.background}`,
+      },
+      tr: {
+        backgroundColor: theme.colors.background.primary,
+        '&:nth-child(even)': {
+          backgroundColor: tableBgOdd,
+        },
+      },
+    }),
+    valueWrapper: css({
+      display: 'flex',
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      columnGap: theme.spacing(1),
+      '> span': {
+        flexGrow: 0,
+      },
+      '> *': {
+        flex: '1 1',
+        alignSelf: 'center',
+      },
+    }),
+    tooltip: css({
+      background: 'none',
+      padding: 0,
+      overflowY: 'auto',
+      maxHeight: '95vh',
+    }),
+    header: css({
+      background: headerBg,
+      padding: '6px 10px',
+      display: 'flex',
+    }),
+    title: css({
+      fontWeight: theme.typography.fontWeightMedium,
+      paddingRight: theme.spacing(2),
+      overflow: 'hidden',
+      display: 'inline-block',
+      whiteSpace: 'nowrap',
+      textOverflow: 'ellipsis',
+      flexGrow: 1,
+    }),
+    body: css({
+      fontWeight: theme.typography.fontWeightMedium,
+      borderRadius: theme.shape.borderRadius(2),
+      overflow: 'hidden',
+    }),
+    marble: css({
+      display: 'block',
+      opacity: 0.5,
+      transition: 'transform 0.15s ease-out',
+    }),
+    activeMarble: css({
+      transform: 'scale(1.3)',
+      opacity: 1,
+      filter: 'drop-shadow(0 0 8px rgba(0, 0, 0, 0.5))',
+    }),
   };
 };

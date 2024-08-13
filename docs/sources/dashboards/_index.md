@@ -1,61 +1,73 @@
-+++
-title = "Dashboards"
-aliases = ["/docs/grafana/latest/features/dashboard/dashboards/"]
-weight = 80
-+++
+---
+aliases:
+  - features/dashboard/dashboards/
+labels:
+  products:
+    - cloud
+    - enterprise
+    - oss
+title: Dashboards
+weight: 70
+description: Create and manage dashboards
+---
 
-# Dashboard overview
+# Dashboards
 
-A _dashboard_ is a set of one or more panels organized and arranged into one or more rows. Grafana ships with a variety of Panels. Grafana makes it easy to construct the right queries, and customize the display properties so that you can create the perfect dashboard for your need. Each panel can interact with data from any configured Grafana Data Source (currently Graphite, Prometheus, Elasticsearch, InfluxDB, OpenTSDB, MySQL, PostgreSQL, Microsoft SQL Server and AWS Cloudwatch).
+A dashboard is a set of one or more [panels][] organized and arranged into one or more rows. Grafana ships with a variety of panels making it easy to construct the right queries, and customize the visualization so that you can create the perfect dashboard for your need. Each panel can interact with data from any configured Grafana [data source][].
 
-## Dashboard UI
+Dashboard snapshots are static. Queries and expressions cannot be re-executed from snapshots. As a result, if you update any variables in your query or expression, it will not change your dashboard data.
 
-<img src="/img/docs/v50/dashboard_annotated.png" class="no-shadow" width="700px">
+Before you begin, ensure that you have configured a data source. See also:
 
-1. Zoom out time range
-1. Time picker dropdown. Here you can access relative time range options, auto refresh options and set custom absolute time ranges.
-1. Manual refresh button. Will cause all panels to refresh (fetch new data).
-1. Dashboard panel. Click the panel title to edit panels.
-1. Graph legend. You can change series colors, y-axis and series visibility directly from the legend.
+- [Use dashboards][]
+- [Build dashboards][]
+- [Create dashboard folders][]
+- [Manage dashboards][]
+- [Public dashboards][]
+- [Annotations][]
+- [Playlist][]
+- [Reporting][]
+- [Version history][]
+- [Export and import][]
+- [JSON model][]
 
-## Dashboard header
+{{% docs/reference %}}
+[data source]: "/docs/grafana/ -> /docs/grafana/<GRAFANA VERSION>/datasources"
+[data source]: "/docs/grafana-cloud/ -> /docs/grafana/<GRAFANA VERSION>/datasources"
 
-Click the new Dashboard link on the right side of the Dashboard picker. You now have a blank Dashboard.
+[Reporting]: "/docs/grafana/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/create-reports"
+[Reporting]: "/docs/grafana-cloud/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/create-reports"
 
-<img class="no-shadow" src="/img/docs/v50/top_nav_annotated.png" width="580px">
+[Public dashboards]: "/docs/grafana/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/dashboard-public"
+[Public dashboards]: "/docs/grafana-cloud/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/dashboard-public"
 
-The image above shows you the top header for a Dashboard.
+[Version history]: "/docs/grafana/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/build-dashboards/manage-version-history"
+[Version history]: "/docs/grafana-cloud/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/build-dashboards/manage-version-history"
 
-1. Side menubar toggle: This toggles the side menu, allowing you to focus on the data presented in the dashboard. The side menu provides access to features unrelated to a Dashboard such as Users, Organizations, and Data Sources.
-1. Dashboard dropdown: This dropdown shows you which Dashboard you are currently viewing, and allows you to easily switch to a new Dashboard. From here you can also create a new Dashboard or folder, import existing Dashboards, and manage Dashboard playlists.
-1. Add Panel: Adds a new panel to the current Dashboard.
-1. Star Dashboard: Star (or unstar) the current Dashboard. Starred Dashboards will show up on your own Home Dashboard by default, and are a convenient way to mark Dashboards that you're interested in.
-1. Share Dashboard: Share the current dashboard by creating a link or create a static Snapshot of it. Make sure the Dashboard is saved before sharing.
-1. Save dashboard: The current Dashboard will be saved with the current Dashboard name.
-1. Settings: Manage Dashboard settings and features such as Templating and Annotations.
+[panels]: "/docs/grafana/ -> /docs/grafana/<GRAFANA VERSION>/panels-visualizations"
+[panels]: "/docs/grafana-cloud/ -> /docs/grafana/<GRAFANA VERSION>/panels-visualizations"
 
-## Manage dashboards
+[Annotations]: "/docs/grafana/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/build-dashboards/annotate-visualizations"
+[Annotations]: "/docs/grafana-cloud/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/build-dashboards/annotate-visualizations"
 
-The time period for the dashboard can be controlled by the [Time range controls]({{< relref "time-range-controls.md" >}}) in the upper right of the dashboard.
+[Create dashboard folders]: "/docs/grafana/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/manage-dashboards#create-a-dashboard-folder"
+[Create dashboard folders]: "/docs/grafana-cloud/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/manage-dashboards#create-a-dashboard-folder"
 
-Dashboards can use [templating]({{< relref "../variables/_index.md" >}}) to make them more dynamic and interactive.
+[JSON model]: "/docs/grafana/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/build-dashboards/view-dashboard-json-model"
+[JSON model]: "/docs/grafana-cloud/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/build-dashboards/view-dashboard-json-model"
 
-Dashboards can use [annotations]({{< relref "annotations.md" >}}) to display event data across panels. This can help correlate the time series data in the panel with other events.
+[Export and import]: "/docs/grafana/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/manage-dashboards#export-and-import-dashboards"
+[Export and import]: "/docs/grafana-cloud/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/manage-dashboards#export-and-import-dashboards"
 
-You can [share dashboards]({{< relref "../sharing/share-dashboard.md" >}}) in a variety of ways.
+[Manage dashboards]: "/docs/grafana/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/manage-dashboards"
+[Manage dashboards]: "/docs/grafana-cloud/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/manage-dashboards"
 
-Dashboards can be tagged, and the dashboard picker provides quick, searchable access to all dashboards in a particular organization.
+[Build dashboards]: "/docs/grafana/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/build-dashboards"
+[Build dashboards]: "/docs/grafana-cloud/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/build-dashboards"
 
-## Rows
+[Use dashboards]: "/docs/grafana/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/use-dashboards"
+[Use dashboards]: "/docs/grafana-cloud/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/use-dashboards"
 
-A *row* is a logical divider within a dashboard. It is used to group panels together.
-
-Rows are always 12 “units” wide. These units are automatically scaled dependent on the horizontal resolution of your browser. You can control the relative width of panels within a row by setting their specific width.
-
-We use a unit abstraction so that Grafana looks great on all screen sizes.
-
- > **Note:** With MaxDataPoint functionality, Grafana can show you the perfect number of data points, regardless of resolution or time range.
-
-Collapse a row by clicking on the row title. If you save a dashboard with a row collapsed, then it saves in that state and does not load those graphs until you expand the row.
-
-Use the [repeating rows]({{< relref "../variables/_index.md#repeating-rows" >}}) functionality to dynamically create or remove entire rows, which can be filled with panels, based on the template variables selected.
+[Playlist]: "/docs/grafana/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/create-manage-playlists"
+[Playlist]: "/docs/grafana-cloud/ -> /docs/grafana/<GRAFANA VERSION>/dashboards/create-manage-playlists"
+{{% /docs/reference %}}

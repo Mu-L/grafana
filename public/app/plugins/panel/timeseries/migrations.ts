@@ -1,3 +1,5 @@
+import { omitBy, pickBy, isNil, isNumber, isString } from 'lodash';
+
 import {
   ConfigOverrideRule,
   DynamicConfigValue,
@@ -7,42 +9,89 @@ import {
   FieldConfigSource,
   FieldMatcherID,
   fieldReducers,
+  FieldType,
   NullValueMode,
-  PanelModel,
+  PanelTypeChangedHandler,
+  ReducerID,
+  Threshold,
+  ThresholdsMode,
 } from '@grafana/data';
-import { GraphFieldConfig, LegendDisplayMode } from '@grafana/ui';
 import {
-  GraphGradientMode,
+  LegendDisplayMode,
+  TooltipDisplayMode,
   AxisPlacement,
-  DrawStyle,
+  GraphDrawStyle,
+  GraphFieldConfig,
+  GraphGradientMode,
+  GraphTresholdsStyleMode,
   LineInterpolation,
   LineStyle,
-  PointVisibility,
-} from '@grafana/ui/src/components/uPlot/config';
-import { Options } from './types';
-import omitBy from 'lodash/omitBy';
-import isNil from 'lodash/isNil';
-import { isNumber, isString } from 'lodash';
+  VisibilityMode,
+  ScaleDistribution,
+  StackingMode,
+  SortOrder,
+  GraphTransform,
+  AnnotationQuery,
+  ComparisonOperation,
+} from '@grafana/schema';
+import { TimeRegionConfig } from 'app/core/utils/timeRegions';
+import { getDashboardSrv } from 'app/features/dashboard/services/DashboardSrv';
+import { getTimeSrv } from 'app/features/dashboard/services/TimeSrv';
+import { GrafanaQuery, GrafanaQueryType } from 'app/plugins/datasource/grafana/types';
+
+import { defaultGraphConfig } from './config';
+import { Options } from './panelcfg.gen';
+
+let dashboardRefreshDebouncer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * This is called when the panel changes from another panel
  */
-export const graphPanelChangedHandler = (
-  panel: PanelModel<Partial<Options>> | any,
-  prevPluginId: string,
-  prevOptions: any
+export const graphPanelChangedHandler: PanelTypeChangedHandler = (
+  panel,
+  prevPluginId,
+  prevOptions,
+  prevFieldConfig
 ) => {
   // Changing from angular/flot panel to react/uPlot
   if (prevPluginId === 'graph' && prevOptions.angular) {
-    const { fieldConfig, options } = flotToGraphOptions(prevOptions.angular);
+    const { fieldConfig, options, annotations } = graphToTimeseriesOptions({
+      ...prevOptions.angular,
+      fieldConfig: prevFieldConfig,
+      panel: panel,
+    });
+
+    const dashboard = getDashboardSrv().getCurrent();
+    if (dashboard && annotations?.length > 0) {
+      dashboard.annotations.list = [...dashboard.annotations.list, ...annotations];
+
+      // Trigger a full dashboard refresh when annotations change
+      if (dashboardRefreshDebouncer == null) {
+        dashboardRefreshDebouncer = setTimeout(() => {
+          dashboardRefreshDebouncer = null;
+          getTimeSrv().refreshTimeModel();
+        });
+      }
+    }
+
     panel.fieldConfig = fieldConfig; // Mutates the incoming panel
+    panel.alert = prevOptions.angular.alert;
     return options;
   }
+
+  //fixes graph -> viz renaming in custom.hideFrom field config by mutation.
+  migrateHideFrom(panel);
 
   return {};
 };
 
-export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSource; options: Options } {
+export function graphToTimeseriesOptions(angular: any): {
+  fieldConfig: FieldConfigSource;
+  options: Options;
+  annotations: AnnotationQuery[];
+} {
+  let annotations: AnnotationQuery[] = [];
+
   const overrides: ConfigOverrideRule[] = angular.fieldConfig?.overrides ?? [];
   const yaxes = angular.yaxes ?? [];
   let y1 = getFieldConfigFromOldAxis(yaxes[0]);
@@ -100,9 +149,10 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
       if (!seriesOverride.alias) {
         continue; // the matcher config
       }
+      const aliasIsRegex = /^([/~@;%#'])(.*?)\1([gimsuy]*)$/.test(seriesOverride.alias);
       const rule: ConfigOverrideRule = {
         matcher: {
-          id: FieldMatcherID.byName,
+          id: aliasIsRegex ? FieldMatcherID.byRegexp : FieldMatcherID.byName,
           options: seriesOverride.alias,
         },
         properties: [],
@@ -151,14 +201,14 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
           case 'points':
             rule.properties.push({
               id: 'custom.showPoints',
-              value: v ? PointVisibility.Always : PointVisibility.Never,
+              value: v ? VisibilityMode.Always : VisibilityMode.Never,
             });
             break;
           case 'bars':
             if (v) {
               rule.properties.push({
                 id: 'custom.drawStyle',
-                value: DrawStyle.Bars,
+                value: GraphDrawStyle.Bars,
               });
               rule.properties.push({
                 id: 'custom.fillOpacity',
@@ -167,15 +217,22 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
             } else {
               rule.properties.push({
                 id: 'custom.drawStyle',
-                value: DrawStyle.Line, // Change from bars
+                value: GraphDrawStyle.Line, // Change from bars
               });
             }
             break;
           case 'lines':
-            rule.properties.push({
-              id: 'custom.lineWidth',
-              value: 0, // don't show lines
-            });
+            if (v) {
+              rule.properties.push({
+                id: 'custom.drawStyle',
+                value: 'line',
+              });
+            } else {
+              rule.properties.push({
+                id: 'custom.lineWidth',
+                value: 0,
+              });
+            }
             break;
           case 'linewidth':
             rule.properties.push({
@@ -210,6 +267,27 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
                 break;
             }
             break;
+          case 'stack':
+            rule.properties.push({
+              id: 'custom.stacking',
+              value: getStackingFromOverrides(v),
+            });
+            break;
+          case 'color':
+            rule.properties.push({
+              id: 'color',
+              value: {
+                fixedColor: v,
+                mode: FieldColorModeId.Fixed,
+              },
+            });
+            break;
+          case 'transform':
+            rule.properties.push({
+              id: 'custom.transform',
+              value: v === 'negative-Y' ? GraphTransform.NegativeY : GraphTransform.Constant,
+            });
+            break;
           default:
             console.log('Ignore override migration:', seriesOverride.alias, p, v);
         }
@@ -226,17 +304,17 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
     }
   }
 
-  const graph = y1.custom ?? ({} as GraphFieldConfig);
-  graph.drawStyle = angular.bars ? DrawStyle.Bars : angular.lines ? DrawStyle.Line : DrawStyle.Points;
+  const graph: GraphFieldConfig = y1.custom ?? {};
+  graph.drawStyle = angular.bars ? GraphDrawStyle.Bars : angular.lines ? GraphDrawStyle.Line : GraphDrawStyle.Points;
 
   if (angular.points) {
-    graph.showPoints = PointVisibility.Always;
+    graph.showPoints = VisibilityMode.Always;
 
     if (isNumber(angular.pointradius)) {
       graph.pointSize = 2 + angular.pointradius * 2;
     }
-  } else if (graph.drawStyle !== DrawStyle.Points) {
-    graph.showPoints = PointVisibility.Never;
+  } else if (graph.drawStyle !== GraphDrawStyle.Points) {
+    graph.showPoints = VisibilityMode.Never;
   }
 
   graph.lineWidth = angular.linewidth;
@@ -255,28 +333,36 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
     graph.fillOpacity = angular.fillGradient * 10; // fill is 0-10
   }
 
-  graph.spanNulls = angular.nullPointMode === NullValueMode.Null;
+  graph.spanNulls = angular.nullPointMode === NullValueMode.Ignore;
 
   if (angular.steppedLine) {
     graph.lineInterpolation = LineInterpolation.StepAfter;
   }
 
-  if (graph.drawStyle === DrawStyle.Bars) {
+  if (graph.drawStyle === GraphDrawStyle.Bars) {
     graph.fillOpacity = 100; // bars were always
   }
 
+  if (angular.stack) {
+    graph.stacking = {
+      mode: StackingMode.Normal,
+      group: defaultGraphConfig.stacking!.group,
+    };
+  }
+
   y1.custom = omitBy(graph, isNil);
-  y1.nullValueMode = angular.nullPointMode as NullValueMode;
+  y1.nullValueMode = angular.nullPointMode;
 
   const options: Options = {
-    graph: {},
     legend: {
       displayMode: LegendDisplayMode.List,
+      showLegend: true,
       placement: 'bottom',
       calcs: [],
     },
-    tooltipOptions: {
-      mode: 'single',
+    tooltip: {
+      mode: TooltipDisplayMode.Single,
+      sort: SortOrder.None,
     },
   };
 
@@ -286,7 +372,7 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
     if (legendConfig.show) {
       options.legend.displayMode = legendConfig.alignAsTable ? LegendDisplayMode.Table : LegendDisplayMode.List;
     } else {
-      options.legend.displayMode = LegendDisplayMode.Hidden;
+      options.legend.showLegend = false;
     }
 
     if (legendConfig.rightSide) {
@@ -294,17 +380,226 @@ export function flotToGraphOptions(angular: any): { fieldConfig: FieldConfigSour
     }
 
     if (angular.legend.values) {
-      options.legend.calcs = getReducersFromLegend(angular.legend);
+      const enabledLegendValues = pickBy(angular.legend);
+      options.legend.calcs = getReducersFromLegend(enabledLegendValues);
+    }
+
+    if (angular.legend.sideWidth) {
+      options.legend.width = angular.legend.sideWidth;
+    }
+
+    if (legendConfig.hideZero) {
+      overrides.push(getLegendHideFromOverride(ReducerID.allIsZero));
+    }
+
+    if (legendConfig.hideEmpty) {
+      overrides.push(getLegendHideFromOverride(ReducerID.allIsNull));
     }
   }
 
+  // timeRegions migration
+  if (angular.timeRegions?.length) {
+    let regions: any[] = angular.timeRegions.map((old: GraphTimeRegionConfig, idx: number) => ({
+      name: `T${idx + 1}`,
+      color: old.colorMode !== 'custom' ? old.colorMode : old.fillColor,
+      line: old.line,
+      fill: old.fill,
+      fromDayOfWeek: old.fromDayOfWeek,
+      toDayOfWeek: old.toDayOfWeek,
+      from: old.from,
+      to: old.to,
+    }));
+
+    regions.forEach((region: GraphTimeRegionConfig, idx: number) => {
+      const anno: AnnotationQuery<GrafanaQuery> = {
+        datasource: {
+          type: 'datasource',
+          uid: 'grafana',
+        },
+        enable: true,
+        hide: true, // don't show the toggle at the top of the dashboard
+        filter: {
+          exclude: false,
+          ids: [angular.panel.id],
+        },
+        iconColor: region.fillColor ?? (region as any).color,
+        name: `T${idx + 1}`,
+        target: {
+          queryType: GrafanaQueryType.TimeRegions,
+          refId: 'Anno',
+          timeRegion: {
+            fromDayOfWeek: region.fromDayOfWeek,
+            toDayOfWeek: region.toDayOfWeek,
+            from: region.from,
+            to: region.to,
+            timezone: 'utc', // graph panel was always UTC
+          },
+        },
+      };
+
+      if (region.fill) {
+        annotations.push(anno);
+      } else if (region.line) {
+        anno.iconColor = region.lineColor ?? 'white';
+        annotations.push(anno);
+      }
+    });
+  }
+
+  const tooltipConfig = angular.tooltip;
+  if (tooltipConfig) {
+    if (tooltipConfig.shared !== undefined) {
+      options.tooltip.mode = tooltipConfig.shared ? TooltipDisplayMode.Multi : TooltipDisplayMode.Single;
+    }
+
+    if (tooltipConfig.sort !== undefined && tooltipConfig.shared) {
+      switch (tooltipConfig.sort) {
+        case 1:
+          options.tooltip.sort = SortOrder.Ascending;
+          break;
+        case 2:
+          options.tooltip.sort = SortOrder.Descending;
+          break;
+        default:
+          options.tooltip.sort = SortOrder.None;
+      }
+    }
+  }
+
+  if (angular.thresholds && angular.thresholds.length > 0) {
+    let steps: Threshold[] = [];
+    let area = false;
+    let line = false;
+
+    const sorted = (angular.thresholds as AngularThreshold[]).sort((a, b) => (a.value > b.value ? 1 : -1));
+
+    for (let idx = 0; idx < sorted.length; idx++) {
+      const threshold = sorted[idx];
+      const next = sorted.length > idx + 1 ? sorted[idx + 1] : null;
+
+      if (threshold.fill) {
+        area = true;
+      }
+
+      if (threshold.line) {
+        line = true;
+      }
+
+      if (threshold.op === 'gt') {
+        steps.push({
+          value: threshold.value,
+          color: getThresholdColor(threshold),
+        });
+      }
+
+      if (threshold.op === 'lt') {
+        if (steps.length === 0) {
+          steps.push({
+            value: -Infinity,
+            color: getThresholdColor(threshold),
+          });
+        }
+
+        // next op is gt and there is a gap set color to transparent
+        if (next && next.op === 'gt' && next.value > threshold.value) {
+          steps.push({
+            value: threshold.value,
+            color: 'transparent',
+          });
+          // if next is a lt we need to use its color
+        } else if (next && next.op === 'lt') {
+          steps.push({
+            value: threshold.value,
+            color: getThresholdColor(next),
+          });
+        } else {
+          steps.push({
+            value: threshold.value,
+            color: 'transparent',
+          });
+        }
+      }
+    }
+
+    // if now less then threshold add an -Infinity base that is transparent
+    if (steps.length > 0 && steps[0].value !== -Infinity) {
+      steps.unshift({
+        color: 'transparent',
+        value: -Infinity,
+      });
+    }
+
+    let displayMode = area ? GraphTresholdsStyleMode.Area : GraphTresholdsStyleMode.Line;
+    if (line && area) {
+      displayMode = GraphTresholdsStyleMode.LineAndArea;
+    }
+
+    // TODO move into standard ThresholdConfig ?
+    y1.custom.thresholdsStyle = { mode: displayMode };
+
+    y1.thresholds = {
+      mode: ThresholdsMode.Absolute,
+      steps,
+    };
+  }
+
+  if (angular.xaxis && angular.xaxis.show === false && angular.xaxis.mode === 'time') {
+    overrides.push({
+      matcher: {
+        id: FieldMatcherID.byType,
+        options: FieldType.time,
+      },
+      properties: [
+        {
+          id: 'custom.axisPlacement',
+          value: AxisPlacement.Hidden,
+        },
+      ],
+    });
+  }
   return {
     fieldConfig: {
       defaults: omitBy(y1, isNil),
       overrides,
     },
     options,
+    annotations,
   };
+}
+
+interface GraphTimeRegionConfig extends TimeRegionConfig {
+  colorMode: string;
+  fill: boolean;
+  fillColor: string;
+  line: boolean;
+  lineColor: string;
+}
+
+function getThresholdColor(threshold: AngularThreshold): string {
+  if (threshold.colorMode === 'critical') {
+    return 'red';
+  }
+
+  if (threshold.colorMode === 'warning') {
+    return 'orange';
+  }
+
+  if (threshold.colorMode === 'custom') {
+    return threshold.fillColor || threshold.lineColor;
+  }
+
+  return 'red';
+}
+
+interface AngularThreshold {
+  op: string;
+  fill: boolean;
+  line: boolean;
+  value: number;
+  colorMode: 'critical' | 'warning' | 'custom';
+  yaxis?: 'left' | 'right';
+  fillColor: string;
+  lineColor: string;
 }
 
 // {
@@ -327,6 +622,15 @@ function getFieldConfigFromOldAxis(obj: any): FieldConfig<GraphFieldConfig> {
   if (obj.label) {
     graph.axisLabel = obj.label;
   }
+  if (obj.logBase) {
+    const log: number = obj.logBase;
+    if (log === 2 || log === 10) {
+      graph.scaleDistribution = {
+        type: ScaleDistribution.Log,
+        log,
+      };
+    }
+  }
   return omitBy(
     {
       unit: obj.format,
@@ -345,8 +649,7 @@ function fillY2DynamicValues(
   props: DynamicConfigValue[]
 ) {
   // The standard properties
-  for (const key of Object.keys(y2)) {
-    const value = (y2 as any)[key];
+  for (const [key, value] of Object.entries(y2)) {
     if (key !== 'custom' && value !== (y1 as any)[key]) {
       props.push({
         id: key,
@@ -358,8 +661,7 @@ function fillY2DynamicValues(
   // Add any custom property
   const y1G = y1.custom ?? {};
   const y2G = y2.custom ?? {};
-  for (const key of Object.keys(y2G)) {
-    const value = (y2G as any)[key];
+  for (const [key, value] of Object.entries(y2G)) {
     if (value !== (y1G as any)[key]) {
       props.push({
         id: `custom.${key}`,
@@ -369,7 +671,7 @@ function fillY2DynamicValues(
   }
 }
 
-function validNumber(val: any): number | undefined {
+function validNumber(val: unknown): number | undefined {
   if (isNumber(val)) {
     return val;
   }
@@ -391,4 +693,56 @@ function getReducersFromLegend(obj: Record<string, any>): string[] {
     }
   }
   return ids;
+}
+
+function migrateHideFrom(panel: {
+  fieldConfig?: { defaults?: { custom?: { hideFrom?: any } }; overrides: ConfigOverrideRule[] };
+}) {
+  if (panel.fieldConfig?.defaults?.custom?.hideFrom?.graph !== undefined) {
+    panel.fieldConfig.defaults.custom.hideFrom.viz = panel.fieldConfig.defaults.custom.hideFrom.graph;
+    delete panel.fieldConfig.defaults.custom.hideFrom.graph;
+  }
+  if (panel.fieldConfig?.overrides) {
+    panel.fieldConfig.overrides = panel.fieldConfig.overrides.map((fr) => {
+      fr.properties = fr.properties.map((p) => {
+        if (p.id === 'custom.hideFrom' && p.value.graph) {
+          p.value.viz = p.value.graph;
+          delete p.value.graph;
+        }
+        return p;
+      });
+      return fr;
+    });
+  }
+}
+
+function getLegendHideFromOverride(reducer: ReducerID.allIsZero | ReducerID.allIsNull) {
+  return {
+    matcher: {
+      id: FieldMatcherID.byValue,
+      options: {
+        reducer: reducer,
+        op: ComparisonOperation.GTE,
+        value: 0,
+      },
+    },
+    properties: [
+      {
+        id: 'custom.hideFrom',
+        value: {
+          tooltip: true,
+          viz: false,
+          legend: true,
+        },
+      },
+    ],
+  };
+}
+
+function getStackingFromOverrides(value: Boolean | string) {
+  const defaultGroupName = defaultGraphConfig.stacking?.group;
+  return {
+    mode: value ? StackingMode.Normal : StackingMode.None,
+    group: isString(value) ? value : defaultGroupName,
+  };
 }

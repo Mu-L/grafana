@@ -1,11 +1,13 @@
-import { DataQueryError, DataQueryResponseData } from './datasource';
-import { AngularPanelMenuItem } from './panel';
-import { DataFrame } from './dataFrame';
+import { DataHoverPayload } from '../events';
 import { eventFactory } from '../events/eventFactory';
 import { BusEventBase, BusEventWithPayload } from '../events/types';
 
-export type AlertPayload = [string, string?];
-export type AlertErrorPayload = [string, (string | Error)?];
+import { DataFrame } from './dataFrame';
+import { DataQueryError, DataQueryResponseData } from './datasource';
+import { AngularPanelMenuItem } from './panel';
+
+export type AlertPayload = [string, string?, string?];
+export type AlertErrorPayload = [string, (string | Error)?, string?];
 
 export const AppEvents = {
   alertSuccess: eventFactory<AlertPayload>('alert-success'),
@@ -28,7 +30,7 @@ export const PanelEvents = {
 };
 
 /** @public */
-export interface LegacyGraphHoverEventPayload {
+export interface LegacyGraphHoverEventPayload extends DataHoverPayload {
   pos: any;
   panel: {
     id: number;
@@ -43,4 +45,5 @@ export class LegacyGraphHoverEvent extends BusEventWithPayload<LegacyGraphHoverE
 /** @alpha */
 export class LegacyGraphHoverClearEvent extends BusEventBase {
   static type = 'graph-hover-clear';
+  payload: DataHoverPayload = { point: {} };
 }

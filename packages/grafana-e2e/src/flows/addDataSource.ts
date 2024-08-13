@@ -1,19 +1,20 @@
-import { DeleteDataSourceConfig } from './deleteDataSource';
-import { e2e } from '../index';
-import { fromBaseUrl, getDataSourceId } from '../support/url';
 import { v4 as uuidv4 } from 'uuid';
+
+import { e2e } from '../index';
+
+import { DeleteDataSourceConfig } from './deleteDataSource';
 
 export interface AddDataSourceConfig {
   basicAuth: boolean;
   basicAuthPassword: string;
   basicAuthUser: string;
-  checkHealth: boolean;
   expectedAlertMessage: string | RegExp;
   form: () => void;
   name: string;
   skipTlsVerify: boolean;
   type: string;
   timeout?: number;
+  awaitHealth?: boolean;
 }
 
 // @todo this actually returns type `Cypress.Chainable<AddDaaSourceConfig>`
@@ -22,12 +23,11 @@ export const addDataSource = (config?: Partial<AddDataSourceConfig>) => {
     basicAuth: false,
     basicAuthPassword: '',
     basicAuthUser: '',
-    checkHealth: false,
     expectedAlertMessage: 'Data source is working',
     form: () => {},
     name: `e2e-${uuidv4()}`,
     skipTlsVerify: false,
-    type: 'TestData DB',
+    type: 'TestData',
     ...config,
   };
 
@@ -35,18 +35,24 @@ export const addDataSource = (config?: Partial<AddDataSourceConfig>) => {
     basicAuth,
     basicAuthPassword,
     basicAuthUser,
-    checkHealth,
     expectedAlertMessage,
     form,
     name,
     skipTlsVerify,
     type,
     timeout,
+    awaitHealth,
   } = fullConfig;
+
+  if (awaitHealth) {
+    e2e()
+      .intercept(/health/)
+      .as('health');
+  }
 
   e2e().logToConsole('Adding data source with name:', name);
   e2e.pages.AddDataSource.visit();
-  e2e.pages.AddDataSource.dataSourcePlugins(type)
+  e2e.pages.AddDataSource.dataSourcePluginsV2(type)
     .scrollIntoView()
     .should('be.visible') // prevents flakiness
     .click();
@@ -78,6 +84,10 @@ export const addDataSource = (config?: Partial<AddDataSourceConfig>) => {
 
   e2e.pages.DataSource.saveAndTest().click();
 
+  if (awaitHealth) {
+    e2e().wait('@health', { timeout: timeout ?? e2e.config().defaultCommandTimeout });
+  }
+
   // use the timeout passed in if it exists, otherwise, continue to use the default
   e2e.pages.DataSource.alert()
     .should('exist')
@@ -88,26 +98,17 @@ export const addDataSource = (config?: Partial<AddDataSourceConfig>) => {
 
   return e2e()
     .url()
-    .then((url: string) => {
-      const id = getDataSourceId(url);
-
+    .then(() => {
       e2e.getScenarioContext().then(({ addedDataSources }: any) => {
         e2e.setScenarioContext({
-          addedDataSources: [...addedDataSources, { id, name } as DeleteDataSourceConfig],
+          addedDataSources: [...addedDataSources, { name } as DeleteDataSourceConfig],
         });
       });
-
-      if (checkHealth) {
-        const healthUrl = fromBaseUrl(`/api/datasources/${id}/health`);
-        e2e().logToConsole(`Fetching ${healthUrl}`);
-        e2e().request(healthUrl).its('body').should('have.property', 'status').and('eq', 'OK');
-      }
 
       // @todo remove `wrap` when possible
       return e2e().wrap(
         {
           config: fullConfig,
-          id,
         },
         { log: false }
       );

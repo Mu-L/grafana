@@ -1,7 +1,12 @@
 import memoizeOne from 'memoize-one';
+
 import { PanelPlugin } from '@grafana/data';
-import { PanelEditorTab, PanelEditorTabId } from '../types';
 import { getConfig } from 'app/core/config';
+import { contextSrv } from 'app/core/services/context_srv';
+import { getRulesPermissions } from 'app/features/alerting/unified/utils/access-control';
+import { GRAFANA_RULES_SOURCE_NAME } from 'app/features/alerting/unified/utils/datasource';
+
+import { PanelEditorTab, PanelEditorTabId } from '../types';
 
 export const getPanelEditorTabs = memoizeOne((tab?: string, plugin?: PanelPlugin) => {
   const tabs: PanelEditorTab[] = [];
@@ -28,13 +33,13 @@ export const getPanelEditorTabs = memoizeOne((tab?: string, plugin?: PanelPlugin
 
     tabs.push({
       id: PanelEditorTabId.Transform,
-      text: 'Transform',
+      text: 'Transform data',
       icon: 'process',
       active: false,
     });
   }
 
-  if (getConfig().alertingEnabled && plugin.meta.id === 'graph') {
+  if (shouldShowAlertingTab(plugin)) {
     tabs.push({
       id: PanelEditorTabId.Alert,
       text: 'Alert',
@@ -48,3 +53,14 @@ export const getPanelEditorTabs = memoizeOne((tab?: string, plugin?: PanelPlugin
 
   return tabs;
 });
+
+export function shouldShowAlertingTab(plugin: PanelPlugin) {
+  const { alertingEnabled, unifiedAlertingEnabled } = getConfig();
+  const hasRuleReadPermissions = contextSrv.hasPermission(getRulesPermissions(GRAFANA_RULES_SOURCE_NAME).read);
+  const isAlertingAvailable = alertingEnabled || (unifiedAlertingEnabled && hasRuleReadPermissions);
+
+  const isGraph = plugin.meta.id === 'graph';
+  const isTimeseries = plugin.meta.id === 'timeseries';
+
+  return (isAlertingAvailable && isGraph) || isTimeseries;
+}

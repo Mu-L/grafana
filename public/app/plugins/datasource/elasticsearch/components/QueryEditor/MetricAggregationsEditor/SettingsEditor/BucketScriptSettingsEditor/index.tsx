@@ -1,31 +1,35 @@
-import React, { Fragment, FunctionComponent, useEffect } from 'react';
+import { css } from '@emotion/css';
+import { uniqueId } from 'lodash';
+import React, { Fragment, useEffect } from 'react';
+
 import { Input, InlineLabel } from '@grafana/ui';
-import { MetricAggregationAction } from '../../state/types';
-import { changeMetricAttribute } from '../../state/actions';
-import { css } from 'emotion';
-import { AddRemove } from '../../../../AddRemove';
+
 import { useStatelessReducer, useDispatch } from '../../../../../hooks/useStatelessReducer';
+import { BucketScript, MetricAggregation } from '../../../../../types';
+import { AddRemove } from '../../../../AddRemove';
 import { MetricPicker } from '../../../../MetricPicker';
-import { reducer } from './state/reducer';
+import { changeMetricAttribute } from '../../state/actions';
+import { SettingField } from '../SettingField';
+
 import {
   addPipelineVariable,
   removePipelineVariable,
   renamePipelineVariable,
   changePipelineVariableMetric,
 } from './state/actions';
-import { SettingField } from '../SettingField';
-import { BucketScript, MetricAggregation } from '../../aggregations';
+import { reducer } from './state/reducer';
 
 interface Props {
   value: BucketScript;
   previousMetrics: MetricAggregation[];
 }
 
-export const BucketScriptSettingsEditor: FunctionComponent<Props> = ({ value, previousMetrics }) => {
-  const upperStateDispatch = useDispatch<MetricAggregationAction<BucketScript>>();
+export const BucketScriptSettingsEditor = ({ value, previousMetrics }: Props) => {
+  const upperStateDispatch = useDispatch();
 
   const dispatch = useStatelessReducer(
-    (newState) => upperStateDispatch(changeMetricAttribute(value, 'pipelineVariables', newState)),
+    (newValue) =>
+      upperStateDispatch(changeMetricAttribute({ metric: value, attribute: 'pipelineVariables', newValue })),
     value.pipelineVariables,
     reducer
   );
@@ -36,7 +40,7 @@ export const BucketScriptSettingsEditor: FunctionComponent<Props> = ({ value, pr
     if (!value.pipelineVariables?.length) {
       dispatch(addPipelineVariable());
     }
-  }, []);
+  }, [dispatch, value.pipelineVariables?.length]);
 
   return (
     <>
@@ -55,7 +59,14 @@ export const BucketScriptSettingsEditor: FunctionComponent<Props> = ({ value, pr
           `}
         >
           {value.pipelineVariables!.map((pipelineVar, index) => (
-            <Fragment key={pipelineVar.name}>
+            // index as a key doesn't work here since removing an element
+            // in the middle of the list, will cause the next element to obtain the same key as the removed one.
+            // this will cause react to "drop" the last element of the list instead of the just removed one,
+            // and the default value for the input won't match the model as the DOM won't get updated.
+            // using pipelineVar.name is not an option since it might be duplicated by the user.
+            // generating a unique key on every render, while is probably not the best solution in terms of performance
+            // ensures the UI is in a correct state. We might want to optimize this if we see perf issue in the future.
+            <Fragment key={uniqueId('es-bs-')}>
               <div
                 className={css`
                   display: grid;
@@ -64,12 +75,13 @@ export const BucketScriptSettingsEditor: FunctionComponent<Props> = ({ value, pr
                 `}
               >
                 <Input
+                  aria-label="Variable name"
                   defaultValue={pipelineVar.name}
                   placeholder="Variable Name"
-                  onBlur={(e) => dispatch(renamePipelineVariable(e.target.value, index))}
+                  onBlur={(e) => dispatch(renamePipelineVariable({ newName: e.target.value, index }))}
                 />
                 <MetricPicker
-                  onChange={(e) => dispatch(changePipelineVariableMetric(e.value!.id, index))}
+                  onChange={(e) => dispatch(changePipelineVariableMetric({ newMetric: e.value!.id, index }))}
                   options={previousMetrics}
                   value={pipelineVar.pipelineAgg}
                 />

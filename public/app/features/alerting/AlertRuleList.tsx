@@ -1,29 +1,28 @@
 import React, { PureComponent } from 'react';
-import { hot } from 'react-hot-loader';
 import { connect, ConnectedProps } from 'react-redux';
-import Page from 'app/core/components/Page/Page';
-import AlertRuleItem from './AlertRuleItem';
-import appEvents from 'app/core/app_events';
-import { getNavModel } from 'app/core/selectors/navModel';
-import { AlertDefinition, AlertRule, StoreState } from 'app/types';
-import { getAlertRulesAsync, togglePauseAlertRule } from './state/actions';
-import { getAlertRuleItems, getSearchQuery } from './state/selectors';
-import { FilterInput } from 'app/core/components/FilterInput/FilterInput';
+
 import { SelectableValue } from '@grafana/data';
 import { config, locationService } from '@grafana/runtime';
-import { setSearchQuery } from './state/reducers';
-import { Button, LinkButton, Select, VerticalGroup } from '@grafana/ui';
-import { AlertDefinitionItem } from './components/AlertDefinitionItem';
+import { Button, FilterInput, LinkButton, Select, VerticalGroup } from '@grafana/ui';
+import appEvents from 'app/core/app_events';
+import { Page } from 'app/core/components/Page/Page';
 import { GrafanaRouteComponentProps } from 'app/core/navigation/types';
-import { ShowModalEvent } from '../../types/events';
+import { AlertRule, StoreState } from 'app/types';
+
+import { ShowModalReactEvent } from '../../types/events';
+
+import { AlertHowToModal } from './AlertHowToModal';
+import AlertRuleItem from './AlertRuleItem';
+import { DeprecationNotice } from './components/DeprecationNotice';
+import { getAlertRulesAsync, togglePauseAlertRule } from './state/actions';
+import { setSearchQuery } from './state/reducers';
+import { getAlertRuleItems, getSearchQuery } from './state/selectors';
 
 function mapStateToProps(state: StoreState) {
   return {
-    navModel: getNavModel(state.navIndex, 'alert-list'),
     alertRules: getAlertRuleItems(state),
     search: getSearchQuery(state.alertRules),
     isLoading: state.alertRules.isLoading,
-    ngAlertDefinitions: state.alertDefinition.alertDefinitions,
   };
 }
 
@@ -45,7 +44,7 @@ export class AlertRuleListUnconnected extends PureComponent<Props> {
     { label: 'OK', value: 'ok' },
     { label: 'Not OK', value: 'not_ok' },
     { label: 'Alerting', value: 'alerting' },
-    { label: 'No Data', value: 'no_data' },
+    { label: 'No data', value: 'no_data' },
     { label: 'Paused', value: 'paused' },
     { label: 'Pending', value: 'pending' },
   ];
@@ -73,13 +72,7 @@ export class AlertRuleListUnconnected extends PureComponent<Props> {
   };
 
   onOpenHowTo = () => {
-    appEvents.publish(
-      new ShowModalEvent({
-        src: 'public/app/features/alerting/partials/alert_howto.html',
-        modalClass: 'confirm-modal',
-        model: {},
-      })
-    );
+    appEvents.publish(new ShowModalReactEvent({ component: AlertHowToModal }));
   };
 
   onSearchQueryChange = (value: string) => {
@@ -99,26 +92,23 @@ export class AlertRuleListUnconnected extends PureComponent<Props> {
   };
 
   render() {
-    const { navModel, alertRules, search, isLoading } = this.props;
+    const { alertRules, search, isLoading } = this.props;
 
     return (
-      <Page navModel={navModel}>
+      <Page navId="alert-list-legacy">
         <Page.Contents isLoading={isLoading}>
           <div className="page-action-bar">
             <div className="gf-form gf-form--grow">
-              <FilterInput
-                labelClassName="gf-form--has-input-icon gf-form--grow"
-                inputClassName="gf-form-input"
-                placeholder="Search alerts"
-                value={search}
-                onChange={this.onSearchQueryChange}
-              />
+              <FilterInput placeholder="Search alerts" value={search} onChange={this.onSearchQueryChange} />
             </div>
             <div className="gf-form">
-              <label className="gf-form-label">States</label>
+              <label className="gf-form-label" htmlFor="alert-state-filter">
+                States
+              </label>
 
               <div className="width-13">
                 <Select
+                  inputId={'alert-state-filter'}
                   options={this.stateFilters}
                   onChange={this.onStateFilterChanged}
                   value={this.getStateFilter()}
@@ -126,8 +116,8 @@ export class AlertRuleListUnconnected extends PureComponent<Props> {
               </div>
             </div>
             <div className="page-action-bar__spacer" />
-            {config.featureToggles.ngalert && (
-              <LinkButton variant="primary" href="alerting/new">
+            {config.unifiedAlertingEnabled && (
+              <LinkButton variant="primary" href="alerting-legacy/ng/new">
                 Add NG Alert
               </LinkButton>
             )}
@@ -135,24 +125,15 @@ export class AlertRuleListUnconnected extends PureComponent<Props> {
               How to add an alert
             </Button>
           </div>
+          <DeprecationNotice />
           <VerticalGroup spacing="none">
-            {alertRules.map((rule, index) => {
-              // Alert definition has "title" as name property.
-              if (rule.hasOwnProperty('name')) {
-                return (
-                  <AlertRuleItem
-                    rule={rule as AlertRule}
-                    key={rule.id}
-                    search={search}
-                    onTogglePause={() => this.onTogglePause(rule as AlertRule)}
-                  />
-                );
-              }
+            {alertRules.map((rule) => {
               return (
-                <AlertDefinitionItem
-                  key={`${rule.id}-${index}`}
-                  alertDefinition={rule as AlertDefinition}
+                <AlertRuleItem
+                  rule={rule}
+                  key={rule.id}
                   search={search}
+                  onTogglePause={() => this.onTogglePause(rule)}
                 />
               );
             })}
@@ -163,4 +144,4 @@ export class AlertRuleListUnconnected extends PureComponent<Props> {
   }
 }
 
-export default hot(module)(connector(AlertRuleListUnconnected));
+export default connector(AlertRuleListUnconnected);

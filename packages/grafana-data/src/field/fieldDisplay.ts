@@ -1,7 +1,11 @@
-import toString from 'lodash/toString';
-import isEmpty from 'lodash/isEmpty';
+import { isEmpty } from 'lodash';
 
-import { getDisplayProcessor } from './displayProcessor';
+import { DataFrameView } from '../dataframe/DataFrameView';
+import { getTimeField } from '../dataframe/processDataFrame';
+import { GrafanaTheme2 } from '../themes';
+import { getFieldMatcher } from '../transformations';
+import { reduceField, ReducerID } from '../transformations/fieldReducer';
+import { FieldMatcherID } from '../transformations/matchers/ids';
 import {
   DataFrame,
   DisplayValue,
@@ -15,13 +19,9 @@ import {
   TimeRange,
   TimeZone,
 } from '../types';
-import { DataFrameView } from '../dataframe/DataFrameView';
-import { GrafanaTheme } from '../types/theme';
-import { reduceField, ReducerID } from '../transformations/fieldReducer';
 import { ScopedVars } from '../types/ScopedVars';
-import { getTimeField } from '../dataframe/processDataFrame';
-import { getFieldMatcher } from '../transformations';
-import { FieldMatcherID } from '../transformations/matchers/ids';
+
+import { getDisplayProcessor } from './displayProcessor';
 import { getFieldDisplayName } from './fieldState';
 
 /**
@@ -72,14 +72,15 @@ export interface GetFieldDisplayValuesOptions {
   fieldConfig: FieldConfigSource;
   replaceVariables: InterpolateFunction;
   sparkline?: boolean; // Calculate the sparkline
-  theme: GrafanaTheme;
+  percentChange?: boolean; // Calculate percent change
+  theme: GrafanaTheme2;
   timeZone?: TimeZone;
 }
 
 export const DEFAULT_FIELD_DISPLAY_VALUES_LIMIT = 25;
 
 export const getFieldDisplayValues = (options: GetFieldDisplayValuesOptions): FieldDisplay[] => {
-  const { replaceVariables, reduceOptions, timeZone } = options;
+  const { replaceVariables, reduceOptions, timeZone, theme } = options;
   const calcs = reduceOptions.calcs.length ? reduceOptions.calcs : [ReducerID.last];
 
   const values: FieldDisplay[] = [];
@@ -96,7 +97,6 @@ export const getFieldDisplayValues = (options: GetFieldDisplayValuesOptions): Fi
 
   const data = options.data ?? [];
   const limit = reduceOptions.limit ? reduceOptions.limit : DEFAULT_FIELD_DISPLAY_VALUES_LIMIT;
-  const scopedVars: ScopedVars = {};
 
   let hitLimit = false;
 
@@ -125,8 +125,7 @@ export const getFieldDisplayValues = (options: GetFieldDisplayValuesOptions): Fi
         };
       }
 
-      // const displayName = getFieldDisplayName(field, dataFrame, data);
-      const displayName = field.config.displayName ?? '';
+      let displayName = field.config.displayName ?? '';
 
       const display =
         field.display ??
@@ -138,36 +137,22 @@ export const getFieldDisplayValues = (options: GetFieldDisplayValuesOptions): Fi
 
       // Show all rows
       if (reduceOptions.values) {
-        const usesCellValues = displayName.indexOf(VAR_CELL_PREFIX) >= 0;
-
         for (let j = 0; j < field.values.length; j++) {
-          // Add all the row variables
-          if (usesCellValues) {
-            for (let k = 0; k < dataFrame.fields.length; k++) {
-              const f = dataFrame.fields[k];
-              const v = f.values.get(j);
-              scopedVars[VAR_CELL_PREFIX + k] = {
-                value: v,
-                text: toString(v),
-              };
-            }
-          }
+          field.state = setIndexForPaletteColor(field, values.length);
 
-          const displayValue = display(field.values.get(j));
-
-          if (displayName !== '') {
-            displayValue.title = replaceVariables(displayName, {
-              ...field.state?.scopedVars, // series and field scoped vars
-              ...scopedVars,
-            });
-          } else {
-            displayValue.title = getSmartDisplayNameForRow(dataFrame, field, j);
-          }
+          const scopedVars = getFieldScopedVarsWithDataContexAndRowIndex(field, j);
+          const displayValue = display(field.values[j]);
+          const rowName = getSmartDisplayNameForRow(dataFrame, field, j, replaceVariables, scopedVars);
+          const overrideColor = lookupRowColorFromOverride(rowName, options.fieldConfig, theme);
 
           values.push({
             name: '',
             field: config,
-            display: displayValue,
+            display: {
+              ...displayValue,
+              title: rowName,
+              color: overrideColor ?? displayValue.color,
+            },
             view,
             colIndex: i,
             rowIndex: j,
@@ -192,17 +177,19 @@ export const getFieldDisplayValues = (options: GetFieldDisplayValuesOptions): Fi
         });
 
         for (const calc of calcs) {
+          const scopedVars = field.state?.scopedVars ?? {};
           scopedVars[VAR_CALC] = { value: calc, text: calc };
+
           const displayValue = display(results[calc]);
 
           if (displayName !== '') {
-            displayValue.title = replaceVariables(displayName, {
-              ...field.state?.scopedVars, // series and field scoped vars
-              ...scopedVars,
-            });
+            displayValue.title = replaceVariables(displayName, scopedVars);
           } else {
             displayValue.title = getFieldDisplayName(field, dataFrame, data);
           }
+          displayValue.percentChange = options.percentChange
+            ? reduceField({ field: field, reducers: [ReducerID.diffperc] }).diffperc
+            : undefined;
 
           let sparkline: FieldSparkline | undefined = undefined;
           if (options.sparkline) {
@@ -244,7 +231,24 @@ export const getFieldDisplayValues = (options: GetFieldDisplayValuesOptions): Fi
   return values;
 };
 
-function getSmartDisplayNameForRow(frame: DataFrame, field: Field, rowIndex: number): string {
+function getSmartDisplayNameForRow(
+  frame: DataFrame,
+  field: Field,
+  rowIndex: number,
+  replaceVariables: InterpolateFunction,
+  scopedVars: ScopedVars | undefined
+): string {
+  const displayName = field.config.displayName;
+
+  if (displayName) {
+    // Handle old __cell_n syntax
+    if (displayName.indexOf(VAR_CELL_PREFIX)) {
+      return replaceVariables(fixCellTemplateExpressions(displayName), scopedVars);
+    }
+
+    return replaceVariables(displayName, scopedVars);
+  }
+
   let parts: string[] = [];
   let otherNumericFields = 0;
 
@@ -254,9 +258,10 @@ function getSmartDisplayNameForRow(frame: DataFrame, field: Field, rowIndex: num
     }
 
     if (otherField.type === FieldType.string) {
-      const value = otherField.values.get(rowIndex) ?? '';
-      if (value.length > 0) {
-        parts.push(value);
+      const value = otherField.values[rowIndex] ?? '';
+      const mappedValue = otherField.display ? otherField.display(value).text : value;
+      if (mappedValue.length > 0) {
+        parts.push(mappedValue);
       }
     } else if (otherField.type === FieldType.number) {
       otherNumericFields++;
@@ -264,10 +269,38 @@ function getSmartDisplayNameForRow(frame: DataFrame, field: Field, rowIndex: num
   }
 
   if (otherNumericFields || parts.length === 0) {
-    parts.push(getFieldDisplayName(field));
+    parts.push(getFieldDisplayName(field, frame));
   }
 
   return parts.join(' ');
+}
+
+/**
+ * Palette color modes use series index (field index) which does not work for when displaing rows
+ * So updating seriesIndex here makes the palette color modes work in "All values" mode
+ */
+function setIndexForPaletteColor(field: Field, currentLength: number) {
+  return {
+    ...field.state,
+    seriesIndex: currentLength,
+  };
+}
+
+/**
+ * This function makes overrides that set color work for row values
+ */
+function lookupRowColorFromOverride(displayName: string, fieldConfig: FieldConfigSource, theme: GrafanaTheme2) {
+  for (const override of fieldConfig.overrides) {
+    if (override.matcher.id === 'byName' && override.matcher.options === displayName) {
+      for (const prop of override.properties) {
+        if (prop.id === 'color' && prop.value) {
+          return theme.visualization.getColorByName(prop.value.fixedColor);
+        }
+      }
+    }
+  }
+
+  return null;
 }
 
 export function hasLinks(field: Field): boolean {
@@ -275,36 +308,32 @@ export function hasLinks(field: Field): boolean {
 }
 
 export function getDisplayValueAlignmentFactors(values: FieldDisplay[]): DisplayValueAlignmentFactors {
-  const info: DisplayValueAlignmentFactors = {
-    title: '',
-    text: '',
-  };
-
-  let prefixLength = 0;
-  let suffixLength = 0;
+  let maxTitle = '';
+  let maxText = '';
+  let maxPrefix = '';
+  let maxSuffix = '';
 
   for (let i = 0; i < values.length; i++) {
     const v = values[i].display;
 
-    if (v.text && v.text.length > info.text.length) {
-      info.text = v.text;
+    if (v.text && v.text.length > maxText.length) {
+      maxText = v.text;
     }
 
-    if (v.title && v.title.length > info.title.length) {
-      info.title = v.title;
+    if (v.title && v.title.length > maxTitle.length) {
+      maxTitle = v.title;
     }
 
-    if (v.prefix && v.prefix.length > prefixLength) {
-      info.prefix = v.prefix;
-      prefixLength = v.prefix.length;
+    if (v.prefix && v.prefix.length > maxPrefix.length) {
+      maxPrefix = v.prefix;
     }
 
-    if (v.suffix && v.suffix.length > suffixLength) {
-      info.suffix = v.suffix;
-      suffixLength = v.suffix.length;
+    if (v.suffix && v.suffix.length > maxSuffix.length) {
+      maxSuffix = v.suffix;
     }
   }
-  return info;
+
+  return { text: maxText, title: maxTitle, suffix: maxSuffix, prefix: maxPrefix };
 }
 
 function createNoValuesFieldDisplay(options: GetFieldDisplayValuesOptions): FieldDisplay {
@@ -345,4 +374,32 @@ function getDisplayText(display: DisplayValue, fallback: string): string {
     return fallback;
   }
   return display.text;
+}
+
+export function fixCellTemplateExpressions(str: string) {
+  return str.replace(
+    /\${__cell_(\d+)(.*?)}|\[\[__cell_(\d+)(.*?)\]\]|\$__cell_(\d+)(\S*)/g,
+    (match, cellNum1, fmt1, cellNum2, fmt2, cellNum3, fmt3) => {
+      return `\${__data.fields[${cellNum1 ?? cellNum2 ?? cellNum3}]${fmt1 ?? fmt2 ?? fmt3}}`;
+    }
+  );
+}
+
+/**
+ * Clones the existing dataContext and adds rowIndex to it
+ */
+function getFieldScopedVarsWithDataContexAndRowIndex(field: Field, rowIndex: number): ScopedVars | undefined {
+  if (field.state?.scopedVars?.__dataContext) {
+    return {
+      ...field.state?.scopedVars,
+      __dataContext: {
+        value: {
+          ...field.state?.scopedVars?.__dataContext.value,
+          rowIndex,
+        },
+      },
+    };
+  }
+
+  return field.state?.scopedVars;
 }

@@ -1,8 +1,11 @@
-import { Field, GrafanaTheme, LinkModel } from '@grafana/data';
-import { css } from 'emotion';
+import { css } from '@emotion/css';
 import React from 'react';
-import { useStyles } from '../../themes';
+
+import { Field, GrafanaTheme2, LinkModel } from '@grafana/data';
+
+import { useStyles2 } from '../../themes';
 import { Icon } from '../Icon/Icon';
+
 import { DataLinkButton } from './DataLinkButton';
 
 type Props = {
@@ -13,7 +16,7 @@ type Props = {
  * @internal
  */
 export function FieldLinkList({ links }: Props) {
-  const styles = useStyles(getStyles);
+  const styles = useStyles2(getStyles);
 
   if (links.length === 1) {
     return <DataLinkButton link={links[0]} />;
@@ -40,32 +43,32 @@ export function FieldLinkList({ links }: Props) {
   );
 }
 
-const getStyles = (theme: GrafanaTheme) => ({
-  wrapper: css`
-    flex-basis: 150px;
-    width: 100px;
-    margin-top: ${theme.spacing.sm};
-  `,
-  externalLinksHeading: css`
-    color: ${theme.colors.textWeak};
-    font-weight: ${theme.typography.weight.regular};
-    font-size: ${theme.typography.size.sm};
-    margin: 0;
-  `,
-  externalLink: css`
-    color: ${theme.colors.linkExternal};
-    font-weight: ${theme.typography.weight.regular};
-    display: block;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+const getStyles = (theme: GrafanaTheme2) => ({
+  wrapper: css({
+    flexBasis: '150px',
+    width: '100px',
+    marginTop: theme.spacing(1),
+  }),
+  externalLinksHeading: css({
+    color: theme.colors.text.secondary,
+    fontWeight: theme.typography.fontWeightRegular,
+    fontSize: theme.typography.size.sm,
+    margin: 0,
+  }),
+  externalLink: css({
+    color: theme.colors.text.link,
+    fontWeight: theme.typography.fontWeightRegular,
+    display: 'block',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
 
-    &:hover {
-      text-decoration: underline;
-    }
+    '&:hover': {
+      textDecoration: 'underline',
+    },
 
-    div {
-      margin-right: ${theme.spacing.sm};
-    }
-  `,
+    div: {
+      marginRight: theme.spacing(1),
+    },
+  }),
 });

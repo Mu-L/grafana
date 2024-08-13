@@ -1,9 +1,8 @@
-import {
-  isMetricAggregationWithField,
-  MetricAggregation,
-  MetricAggregationWithInlineScript,
-} from './components/QueryEditor/MetricAggregationsEditor/aggregations';
+import { gte, SemVer } from 'semver';
+
+import { isMetricAggregationWithField } from './components/QueryEditor/MetricAggregationsEditor/aggregations';
 import { metricAggregationConfig } from './components/QueryEditor/MetricAggregationsEditor/utils';
+import { ElasticsearchQuery, MetricAggregation, MetricAggregationWithInlineScript } from './types';
 
 export const describeMetric = (metric: MetricAggregation) => {
   if (!isMetricAggregationWithField(metric)) {
@@ -20,7 +19,7 @@ export const describeMetric = (metric: MetricAggregation) => {
  * recursing over nested objects (not arrays).
  * @param obj
  */
-export const removeEmpty = <T>(obj: T): Partial<T> =>
+export const removeEmpty = <T extends {}>(obj: T): Partial<T> =>
   Object.entries(obj).reduce((acc, [key, value]) => {
     // Removing nullish values (null & undefined)
     if (value == null) {
@@ -33,7 +32,7 @@ export const removeEmpty = <T>(obj: T): Partial<T> =>
     }
 
     // Removing empty strings
-    if (value?.length === 0) {
+    if (typeof value === 'string' && value.length === 0) {
       return { ...acc };
     }
 
@@ -91,3 +90,19 @@ export const convertOrderByToMetricId = (orderBy: string): string | undefined =>
  */
 export const getScriptValue = (metric: MetricAggregationWithInlineScript) =>
   (typeof metric.settings?.script === 'object' ? metric.settings?.script?.inline : metric.settings?.script) || '';
+
+export const isSupportedVersion = (version: SemVer): boolean => {
+  if (gte(version, '7.16.0')) {
+    return true;
+  }
+
+  return false;
+};
+
+export const unsupportedVersionMessage =
+  'Support for Elasticsearch versions after their end-of-life (currently versions < 7.16) was removed. Using unsupported version of Elasticsearch may lead to unexpected and incorrect results.';
+
+// To be considered a time series query, the last bucked aggregation must be a Date Histogram
+export const isTimeSeriesQuery = (query: ElasticsearchQuery): boolean => {
+  return query?.bucketAggs?.slice(-1)[0]?.type === 'date_histogram';
+};

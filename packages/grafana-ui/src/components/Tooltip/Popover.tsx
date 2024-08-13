@@ -1,9 +1,11 @@
-﻿import React, { PureComponent } from 'react';
-import { Placement, VirtualElement } from '@popperjs/core';
+﻿import { Placement, VirtualElement } from '@popperjs/core';
+import React, { PureComponent } from 'react';
 import { Manager, Popper as ReactPopper, PopperArrowProps } from 'react-popper';
-import { Portal } from '../Portal/Portal';
 import Transition from 'react-transition-group/Transition';
-import { PopoverContent } from './Tooltip';
+
+import { Portal } from '../Portal/Portal';
+
+import { PopoverContent } from './types';
 
 const defaultTransitionStyles = {
   transitionProperty: 'opacity',
@@ -21,7 +23,7 @@ const transitionStyles: { [key: string]: object } = {
 
 export type RenderPopperArrowFn = (props: { arrowProps: PopperArrowProps; placement: string }) => JSX.Element;
 
-interface Props extends React.HTMLAttributes<HTMLDivElement> {
+interface Props extends Omit<React.HTMLAttributes<HTMLDivElement>, 'content'> {
   show: boolean;
   placement?: Placement;
   content: PopoverContent;
@@ -32,17 +34,8 @@ interface Props extends React.HTMLAttributes<HTMLDivElement> {
 
 class Popover extends PureComponent<Props> {
   render() {
-    const {
-      content,
-      show,
-      placement,
-      onMouseEnter,
-      onMouseLeave,
-      className,
-      wrapperClassName,
-      renderArrow,
-      referenceElement,
-    } = this.props;
+    const { content, show, placement, className, wrapperClassName, renderArrow, referenceElement, ...rest } =
+      this.props;
 
     return (
       <Manager>
@@ -64,8 +57,6 @@ class Popover extends PureComponent<Props> {
                   {({ ref, style, placement, arrowProps, update }) => {
                     return (
                       <div
-                        onMouseEnter={onMouseEnter}
-                        onMouseLeave={onMouseLeave}
                         ref={ref}
                         style={{
                           ...style,
@@ -74,6 +65,7 @@ class Popover extends PureComponent<Props> {
                         }}
                         data-placement={placement}
                         className={`${wrapperClassName}`}
+                        {...rest}
                       >
                         <div className={className}>
                           {typeof content === 'string' && content}

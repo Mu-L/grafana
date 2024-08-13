@@ -1,15 +1,17 @@
-import React, { FC, useState } from 'react';
+import React, { useState } from 'react';
+
+import { getBackendSrv } from '@grafana/runtime';
 import { Form, Field, Input, Button, Legend, Container, HorizontalGroup, LinkButton } from '@grafana/ui';
 import { getConfig } from 'app/core/config';
-import { getBackendSrv } from '@grafana/runtime';
-import appEvents from 'app/core/app_events';
-import { AppEvents } from '@grafana/data';
+import { useAppNotification } from 'app/core/copy/appNotification';
+import { w3cStandardEmailValidator } from 'app/features/admin/utils';
 
 interface EmailDTO {
   email: string;
 }
 
-export const VerifyEmail: FC = () => {
+export const VerifyEmail = () => {
+  const notifyApp = useAppNotification();
   const [emailSent, setEmailSent] = useState(false);
 
   const onSubmit = (formModel: EmailDTO) => {
@@ -20,7 +22,7 @@ export const VerifyEmail: FC = () => {
       })
       .catch((err) => {
         const msg = err.data?.message || err;
-        appEvents.emit(AppEvents.alertWarning, [msg]);
+        notifyApp.warning(msg);
       });
   };
 
@@ -44,14 +46,24 @@ export const VerifyEmail: FC = () => {
           <Field
             label="Email"
             description="Enter your email address to get a verification link sent to you"
-            invalid={!!(errors as any).email}
-            error={(errors as any).email?.message}
+            invalid={!!errors.email}
+            error={errors.email?.message}
           >
-            <Input placeholder="Email" name="email" ref={register({ required: true })} />
+            <Input
+              id="email"
+              {...register('email', {
+                required: 'Email is required',
+                pattern: {
+                  value: w3cStandardEmailValidator,
+                  message: 'Email is invalid',
+                },
+              })}
+              placeholder="Email"
+            />
           </Field>
           <HorizontalGroup>
-            <Button>Send verification email</Button>
-            <LinkButton variant="link" href={getConfig().appSubUrl + '/login'}>
+            <Button type="submit">Send verification email</Button>
+            <LinkButton fill="text" href={getConfig().appSubUrl + '/login'}>
               Back to login
             </LinkButton>
           </HorizontalGroup>

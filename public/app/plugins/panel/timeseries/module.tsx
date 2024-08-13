@@ -1,26 +1,28 @@
 import { PanelPlugin } from '@grafana/data';
-import { GraphFieldConfig } from '@grafana/ui';
-import { TimeSeriesPanel } from './TimeSeriesPanel';
-import { graphPanelChangedHandler } from './migrations';
-import { Options } from './types';
-import { addLegendOptions, defaultGraphConfig, getGraphFieldConfig } from './config';
+import { commonOptionsBuilder } from '@grafana/ui';
 
-export const plugin = new PanelPlugin<Options, GraphFieldConfig>(TimeSeriesPanel)
+import { TimeSeriesPanel } from './TimeSeriesPanel';
+import { TimezonesEditor } from './TimezonesEditor';
+import { defaultGraphConfig, getGraphFieldConfig } from './config';
+import { graphPanelChangedHandler } from './migrations';
+import { FieldConfig, Options } from './panelcfg.gen';
+import { TimeSeriesSuggestionsSupplier } from './suggestions';
+
+export const plugin = new PanelPlugin<Options, FieldConfig>(TimeSeriesPanel)
   .setPanelChangeHandler(graphPanelChangedHandler)
   .useFieldConfig(getGraphFieldConfig(defaultGraphConfig))
   .setPanelOptions((builder) => {
-    builder.addRadio({
-      path: 'tooltipOptions.mode',
-      name: 'Tooltip mode',
-      description: '',
-      defaultValue: 'single',
-      settings: {
-        options: [
-          { value: 'single', label: 'Single' },
-          { value: 'multi', label: 'All' },
-          { value: 'none', label: 'Hidden' },
-        ],
-      },
+    commonOptionsBuilder.addTooltipOptions(builder);
+    commonOptionsBuilder.addLegendOptions(builder);
+
+    builder.addCustomEditor({
+      id: 'timezone',
+      name: 'Time zone',
+      path: 'timezone',
+      category: ['Axis'],
+      editor: TimezonesEditor,
+      defaultValue: undefined,
     });
-    addLegendOptions(builder);
-  });
+  })
+  .setSuggestionsSupplier(new TimeSeriesSuggestionsSupplier())
+  .setDataSupport({ annotations: true, alertStates: true });

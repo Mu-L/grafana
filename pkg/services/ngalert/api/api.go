@@ -1,319 +1,163 @@
 package api
 
 import (
-	"fmt"
+	"context"
+	"net/url"
 	"time"
 
-	"github.com/grafana/grafana/pkg/infra/log"
-
-	ngmodels "github.com/grafana/grafana/pkg/services/ngalert/models"
-
-	"github.com/grafana/grafana/pkg/services/ngalert/schedule"
-	"github.com/grafana/grafana/pkg/services/ngalert/store"
-
-	"github.com/go-macaron/binding"
-	"github.com/grafana/grafana-plugin-sdk-go/data"
-	"github.com/grafana/grafana/pkg/api/response"
 	"github.com/grafana/grafana/pkg/api/routing"
-	"github.com/grafana/grafana/pkg/middleware"
-	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/plugins"
+	"github.com/grafana/grafana/pkg/infra/log"
+	"github.com/grafana/grafana/pkg/infra/tracing"
+	ac "github.com/grafana/grafana/pkg/services/accesscontrol"
+	"github.com/grafana/grafana/pkg/services/auth/identity"
+	"github.com/grafana/grafana/pkg/services/datasourceproxy"
 	"github.com/grafana/grafana/pkg/services/datasources"
+	"github.com/grafana/grafana/pkg/services/featuremgmt"
+	"github.com/grafana/grafana/pkg/services/ngalert/accesscontrol"
+	"github.com/grafana/grafana/pkg/services/ngalert/backtesting"
 	"github.com/grafana/grafana/pkg/services/ngalert/eval"
+	"github.com/grafana/grafana/pkg/services/ngalert/metrics"
+	"github.com/grafana/grafana/pkg/services/ngalert/migration"
+	"github.com/grafana/grafana/pkg/services/ngalert/models"
+	"github.com/grafana/grafana/pkg/services/ngalert/notifier"
+	"github.com/grafana/grafana/pkg/services/ngalert/provisioning"
+	"github.com/grafana/grafana/pkg/services/ngalert/sender"
+	"github.com/grafana/grafana/pkg/services/ngalert/state"
+	"github.com/grafana/grafana/pkg/services/ngalert/store"
+	"github.com/grafana/grafana/pkg/services/quota"
 	"github.com/grafana/grafana/pkg/setting"
-	"github.com/grafana/grafana/pkg/tsdb"
-	"github.com/grafana/grafana/pkg/util"
 )
 
 // timeNow makes it possible to test usage of time
 var timeNow = time.Now
 
+type ExternalAlertmanagerProvider interface {
+	AlertmanagersFor(orgID int64) []*url.URL
+	DroppedAlertmanagersFor(orgID int64) []*url.URL
+}
+
+type AlertingStore interface {
+	GetLatestAlertmanagerConfiguration(ctx context.Context, orgID int64) (*models.AlertConfiguration, error)
+}
+
+type RuleAccessControlService interface {
+	HasAccessToRuleGroup(ctx context.Context, user identity.Requester, rules models.RulesGroup) (bool, error)
+	AuthorizeAccessToRuleGroup(ctx context.Context, user identity.Requester, rules models.RulesGroup) error
+	AuthorizeRuleChanges(ctx context.Context, user identity.Requester, change *store.GroupDelta) error
+	AuthorizeDatasourceAccessForRule(ctx context.Context, user identity.Requester, rule *models.AlertRule) error
+}
+
 // API handlers.
 type API struct {
-	Cfg             *setting.Cfg
-	DatasourceCache datasources.CacheService
-	RouteRegister   routing.RouteRegister
-	DataService     *tsdb.Service
-	Schedule        schedule.ScheduleService
-	Store           store.Store
+	Cfg                  *setting.Cfg
+	DatasourceCache      datasources.CacheService
+	DatasourceService    datasources.DataSourceService
+	RouteRegister        routing.RouteRegister
+	QuotaService         quota.Service
+	TransactionManager   provisioning.TransactionManager
+	ProvenanceStore      provisioning.ProvisioningStore
+	RuleStore            RuleStore
+	AlertingStore        AlertingStore
+	AdminConfigStore     store.AdminConfigurationStore
+	DataProxy            *datasourceproxy.DataSourceProxyService
+	MultiOrgAlertmanager *notifier.MultiOrgAlertmanager
+	StateManager         *state.Manager
+	AccessControl        ac.AccessControl
+	Policies             *provisioning.NotificationPolicyService
+	ContactPointService  *provisioning.ContactPointService
+	Templates            *provisioning.TemplateService
+	MuteTimings          *provisioning.MuteTimingService
+	AlertRules           *provisioning.AlertRuleService
+	AlertsRouter         *sender.AlertsRouter
+	EvaluatorFactory     eval.EvaluatorFactory
+	FeatureManager       featuremgmt.FeatureToggles
+	Historian            Historian
+	Tracer               tracing.Tracer
+	AppUrl               *url.URL
+	UpgradeService       migration.UpgradeService
+
+	// Hooks can be used to replace API handlers for specific paths.
+	Hooks *Hooks
 }
 
 // RegisterAPIEndpoints registers API handlers
-func (api *API) RegisterAPIEndpoints() {
+func (api *API) RegisterAPIEndpoints(m *metrics.API) {
 	logger := log.New("ngalert.api")
-	api.RegisterAlertmanagerApiEndpoints(AlertmanagerApiMock{log: logger})
-	api.RegisterPrometheusApiEndpoints(PrometheusApiMock{log: logger})
-	api.RegisterRulerApiEndpoints(RulerApiMock{log: logger})
-	api.RegisterTestingApiEndpoints(TestingApiMock{log: logger})
-
-	// Legacy routes; they will be removed in v8
-	api.RouteRegister.Group("/api/alert-definitions", func(alertDefinitions routing.RouteRegister) {
-		alertDefinitions.Get("", middleware.ReqSignedIn, routing.Wrap(api.listAlertDefinitions))
-		alertDefinitions.Get("/eval/:alertDefinitionUID", middleware.ReqSignedIn, api.validateOrgAlertDefinition, routing.Wrap(api.alertDefinitionEvalEndpoint))
-		alertDefinitions.Post("/eval", middleware.ReqSignedIn, binding.Bind(ngmodels.EvalAlertConditionCommand{}), routing.Wrap(api.conditionEvalEndpoint))
-		alertDefinitions.Get("/:alertDefinitionUID", middleware.ReqSignedIn, api.validateOrgAlertDefinition, routing.Wrap(api.getAlertDefinitionEndpoint))
-		alertDefinitions.Delete("/:alertDefinitionUID", middleware.ReqEditorRole, api.validateOrgAlertDefinition, routing.Wrap(api.deleteAlertDefinitionEndpoint))
-		alertDefinitions.Post("/", middleware.ReqEditorRole, binding.Bind(ngmodels.SaveAlertDefinitionCommand{}), routing.Wrap(api.createAlertDefinitionEndpoint))
-		alertDefinitions.Put("/:alertDefinitionUID", middleware.ReqEditorRole, api.validateOrgAlertDefinition, binding.Bind(ngmodels.UpdateAlertDefinitionCommand{}), routing.Wrap(api.updateAlertDefinitionEndpoint))
-		alertDefinitions.Post("/pause", middleware.ReqEditorRole, binding.Bind(ngmodels.UpdateAlertDefinitionPausedCommand{}), routing.Wrap(api.alertDefinitionPauseEndpoint))
-		alertDefinitions.Post("/unpause", middleware.ReqEditorRole, binding.Bind(ngmodels.UpdateAlertDefinitionPausedCommand{}), routing.Wrap(api.alertDefinitionUnpauseEndpoint))
-	})
-
-	api.RouteRegister.Group("/api/ngalert/", func(schedulerRouter routing.RouteRegister) {
-		schedulerRouter.Post("/pause", routing.Wrap(api.pauseScheduler))
-		schedulerRouter.Post("/unpause", routing.Wrap(api.unpauseScheduler))
-	}, middleware.ReqOrgAdmin)
-
-	api.RouteRegister.Group("/api/alert-instances", func(alertInstances routing.RouteRegister) {
-		alertInstances.Get("", middleware.ReqSignedIn, routing.Wrap(api.listAlertInstancesEndpoint))
-	})
-}
-
-// conditionEvalEndpoint handles POST /api/alert-definitions/eval.
-func (api *API) conditionEvalEndpoint(c *models.ReqContext, cmd ngmodels.EvalAlertConditionCommand) response.Response {
-	evalCond := ngmodels.Condition{
-		RefID:                 cmd.Condition,
-		OrgID:                 c.SignedInUser.OrgId,
-		QueriesAndExpressions: cmd.Data,
+	proxy := &AlertingProxy{
+		DataProxy: api.DataProxy,
+		ac:        api.AccessControl,
 	}
-	if err := api.validateCondition(evalCond, c.SignedInUser, c.SkipCache); err != nil {
-		return response.Error(400, "invalid condition", err)
+	ruleAuthzService := accesscontrol.NewRuleService(api.AccessControl)
+
+	// Register endpoints for proxying to Alertmanager-compatible backends.
+	api.RegisterAlertmanagerApiEndpoints(NewForkingAM(
+		api.DatasourceCache,
+		NewLotexAM(proxy, logger),
+		&AlertmanagerSrv{crypto: api.MultiOrgAlertmanager.Crypto, log: logger, ac: api.AccessControl, mam: api.MultiOrgAlertmanager},
+	), m)
+	// Register endpoints for proxying to Prometheus-compatible backends.
+	api.RegisterPrometheusApiEndpoints(NewForkingProm(
+		api.DatasourceCache,
+		NewLotexProm(proxy, logger),
+		&PrometheusSrv{log: logger, manager: api.StateManager, store: api.RuleStore, authz: ruleAuthzService},
+	), m)
+	// Register endpoints for proxying to Cortex Ruler-compatible backends.
+	api.RegisterRulerApiEndpoints(NewForkingRuler(
+		api.DatasourceCache,
+		NewLotexRuler(proxy, logger),
+		&RulerSrv{
+			conditionValidator: api.EvaluatorFactory,
+			QuotaService:       api.QuotaService,
+			store:              api.RuleStore,
+			provenanceStore:    api.ProvenanceStore,
+			xactManager:        api.TransactionManager,
+			log:                logger,
+			cfg:                &api.Cfg.UnifiedAlerting,
+			authz:              ruleAuthzService,
+		},
+	), m)
+	api.RegisterTestingApiEndpoints(NewTestingApi(
+		&TestingApiSrv{
+			AlertingProxy:   proxy,
+			DatasourceCache: api.DatasourceCache,
+			log:             logger,
+			authz:           ruleAuthzService,
+			evaluator:       api.EvaluatorFactory,
+			cfg:             &api.Cfg.UnifiedAlerting,
+			backtesting:     backtesting.NewEngine(api.AppUrl, api.EvaluatorFactory, api.Tracer),
+			featureManager:  api.FeatureManager,
+			appUrl:          api.AppUrl,
+			tracer:          api.Tracer,
+		}), m)
+	api.RegisterConfigurationApiEndpoints(NewConfiguration(
+		&ConfigSrv{
+			datasourceService:    api.DatasourceService,
+			store:                api.AdminConfigStore,
+			log:                  logger,
+			alertmanagerProvider: api.AlertsRouter,
+		},
+	), m)
+
+	api.RegisterProvisioningApiEndpoints(NewProvisioningApi(&ProvisioningSrv{
+		log:                 logger,
+		policies:            api.Policies,
+		contactPointService: api.ContactPointService,
+		templates:           api.Templates,
+		muteTimings:         api.MuteTimings,
+		alertRules:          api.AlertRules,
+	}), m)
+
+	api.RegisterHistoryApiEndpoints(NewStateHistoryApi(&HistorySrv{
+		logger: logger,
+		hist:   api.Historian,
+	}), m)
+
+	// Inject upgrade endpoints if legacy alerting is enabled and the feature flag is enabled.
+	if !api.Cfg.UnifiedAlerting.IsEnabled() && api.FeatureManager.IsEnabledGlobally(featuremgmt.FlagAlertingPreviewUpgrade) {
+		api.RegisterUpgradeApiEndpoints(NewUpgradeApi(NewUpgradeSrc(
+			logger,
+			api.UpgradeService,
+			api.Cfg,
+		)), m)
 	}
-
-	now := cmd.Now
-	if now.IsZero() {
-		now = timeNow()
-	}
-
-	evaluator := eval.Evaluator{Cfg: api.Cfg}
-	evalResults, err := evaluator.ConditionEval(&evalCond, timeNow(), api.DataService)
-	if err != nil {
-		return response.Error(400, "Failed to evaluate conditions", err)
-	}
-
-	frame := evalResults.AsDataFrame()
-	df := plugins.NewDecodedDataFrames([]*data.Frame{&frame})
-	instances, err := df.Encoded()
-	if err != nil {
-		return response.Error(400, "Failed to encode result dataframes", err)
-	}
-
-	return response.JSON(200, util.DynMap{
-		"instances": instances,
-	})
-}
-
-// alertDefinitionEvalEndpoint handles GET /api/alert-definitions/eval/:alertDefinitionUID.
-func (api *API) alertDefinitionEvalEndpoint(c *models.ReqContext) response.Response {
-	alertDefinitionUID := c.Params(":alertDefinitionUID")
-
-	condition, err := api.LoadAlertCondition(alertDefinitionUID, c.SignedInUser.OrgId)
-	if err != nil {
-		return response.Error(400, "Failed to load alert definition conditions", err)
-	}
-
-	if err := api.validateCondition(*condition, c.SignedInUser, c.SkipCache); err != nil {
-		return response.Error(400, "invalid condition", err)
-	}
-
-	evaluator := eval.Evaluator{Cfg: api.Cfg}
-	evalResults, err := evaluator.ConditionEval(condition, timeNow(), api.DataService)
-	if err != nil {
-		return response.Error(400, "Failed to evaluate alert", err)
-	}
-	frame := evalResults.AsDataFrame()
-
-	df := plugins.NewDecodedDataFrames([]*data.Frame{&frame})
-	if err != nil {
-		return response.Error(400, "Failed to instantiate Dataframes from the decoded frames", err)
-	}
-
-	instances, err := df.Encoded()
-	if err != nil {
-		return response.Error(400, "Failed to encode result dataframes", err)
-	}
-	return response.JSON(200, util.DynMap{
-		"instances": instances,
-	})
-}
-
-// getAlertDefinitionEndpoint handles GET /api/alert-definitions/:alertDefinitionUID.
-func (api *API) getAlertDefinitionEndpoint(c *models.ReqContext) response.Response {
-	alertDefinitionUID := c.Params(":alertDefinitionUID")
-
-	query := ngmodels.GetAlertDefinitionByUIDQuery{
-		UID:   alertDefinitionUID,
-		OrgID: c.SignedInUser.OrgId,
-	}
-
-	if err := api.Store.GetAlertDefinitionByUID(&query); err != nil {
-		return response.Error(500, "Failed to get alert definition", err)
-	}
-
-	return response.JSON(200, &query.Result)
-}
-
-// deleteAlertDefinitionEndpoint handles DELETE /api/alert-definitions/:alertDefinitionUID.
-func (api *API) deleteAlertDefinitionEndpoint(c *models.ReqContext) response.Response {
-	alertDefinitionUID := c.Params(":alertDefinitionUID")
-
-	cmd := ngmodels.DeleteAlertDefinitionByUIDCommand{
-		UID:   alertDefinitionUID,
-		OrgID: c.SignedInUser.OrgId,
-	}
-
-	if err := api.Store.DeleteAlertDefinitionByUID(&cmd); err != nil {
-		return response.Error(500, "Failed to delete alert definition", err)
-	}
-
-	return response.Success("Alert definition deleted")
-}
-
-// updateAlertDefinitionEndpoint handles PUT /api/alert-definitions/:alertDefinitionUID.
-func (api *API) updateAlertDefinitionEndpoint(c *models.ReqContext, cmd ngmodels.UpdateAlertDefinitionCommand) response.Response {
-	cmd.UID = c.Params(":alertDefinitionUID")
-	cmd.OrgID = c.SignedInUser.OrgId
-
-	evalCond := ngmodels.Condition{
-		RefID:                 cmd.Condition,
-		OrgID:                 c.SignedInUser.OrgId,
-		QueriesAndExpressions: cmd.Data,
-	}
-	if err := api.validateCondition(evalCond, c.SignedInUser, c.SkipCache); err != nil {
-		return response.Error(400, "invalid condition", err)
-	}
-
-	if err := api.Store.UpdateAlertDefinition(&cmd); err != nil {
-		return response.Error(500, "Failed to update alert definition", err)
-	}
-
-	return response.JSON(200, cmd.Result)
-}
-
-// createAlertDefinitionEndpoint handles POST /api/alert-definitions.
-func (api *API) createAlertDefinitionEndpoint(c *models.ReqContext, cmd ngmodels.SaveAlertDefinitionCommand) response.Response {
-	cmd.OrgID = c.SignedInUser.OrgId
-
-	evalCond := ngmodels.Condition{
-		RefID:                 cmd.Condition,
-		OrgID:                 c.SignedInUser.OrgId,
-		QueriesAndExpressions: cmd.Data,
-	}
-	if err := api.validateCondition(evalCond, c.SignedInUser, c.SkipCache); err != nil {
-		return response.Error(400, "invalid condition", err)
-	}
-
-	if err := api.Store.SaveAlertDefinition(&cmd); err != nil {
-		return response.Error(500, "Failed to create alert definition", err)
-	}
-
-	return response.JSON(200, cmd.Result)
-}
-
-// listAlertDefinitions handles GET /api/alert-definitions.
-func (api *API) listAlertDefinitions(c *models.ReqContext) response.Response {
-	query := ngmodels.ListAlertDefinitionsQuery{OrgID: c.SignedInUser.OrgId}
-
-	if err := api.Store.GetOrgAlertDefinitions(&query); err != nil {
-		return response.Error(500, "Failed to list alert definitions", err)
-	}
-
-	return response.JSON(200, util.DynMap{"results": query.Result})
-}
-
-func (api *API) pauseScheduler() response.Response {
-	err := api.Schedule.Pause()
-	if err != nil {
-		return response.Error(500, "Failed to pause scheduler", err)
-	}
-	return response.JSON(200, util.DynMap{"message": "alert definition scheduler paused"})
-}
-
-func (api *API) unpauseScheduler() response.Response {
-	err := api.Schedule.Unpause()
-	if err != nil {
-		return response.Error(500, "Failed to unpause scheduler", err)
-	}
-	return response.JSON(200, util.DynMap{"message": "alert definition scheduler unpaused"})
-}
-
-// alertDefinitionPauseEndpoint handles POST /api/alert-definitions/pause.
-func (api *API) alertDefinitionPauseEndpoint(c *models.ReqContext, cmd ngmodels.UpdateAlertDefinitionPausedCommand) response.Response {
-	cmd.OrgID = c.SignedInUser.OrgId
-	cmd.Paused = true
-
-	err := api.Store.UpdateAlertDefinitionPaused(&cmd)
-	if err != nil {
-		return response.Error(500, "Failed to pause alert definition", err)
-	}
-	return response.JSON(200, util.DynMap{"message": fmt.Sprintf("%d alert definitions paused", cmd.ResultCount)})
-}
-
-// alertDefinitionUnpauseEndpoint handles POST /api/alert-definitions/unpause.
-func (api *API) alertDefinitionUnpauseEndpoint(c *models.ReqContext, cmd ngmodels.UpdateAlertDefinitionPausedCommand) response.Response {
-	cmd.OrgID = c.SignedInUser.OrgId
-	cmd.Paused = false
-
-	err := api.Store.UpdateAlertDefinitionPaused(&cmd)
-	if err != nil {
-		return response.Error(500, "Failed to unpause alert definition", err)
-	}
-	return response.JSON(200, util.DynMap{"message": fmt.Sprintf("%d alert definitions unpaused", cmd.ResultCount)})
-}
-
-// LoadAlertCondition returns a Condition object for the given alertDefinitionID.
-func (api *API) LoadAlertCondition(alertDefinitionUID string, orgID int64) (*ngmodels.Condition, error) {
-	q := ngmodels.GetAlertDefinitionByUIDQuery{UID: alertDefinitionUID, OrgID: orgID}
-	if err := api.Store.GetAlertDefinitionByUID(&q); err != nil {
-		return nil, err
-	}
-	alertDefinition := q.Result
-
-	err := api.Store.ValidateAlertDefinition(alertDefinition, true)
-	if err != nil {
-		return nil, err
-	}
-
-	return &ngmodels.Condition{
-		RefID:                 alertDefinition.Condition,
-		OrgID:                 alertDefinition.OrgID,
-		QueriesAndExpressions: alertDefinition.Data,
-	}, nil
-}
-
-func (api *API) validateCondition(c ngmodels.Condition, user *models.SignedInUser, skipCache bool) error {
-	var refID string
-
-	if len(c.QueriesAndExpressions) == 0 {
-		return nil
-	}
-
-	for _, query := range c.QueriesAndExpressions {
-		if c.RefID == query.RefID {
-			refID = c.RefID
-		}
-
-		datasourceUID, err := query.GetDatasource()
-		if err != nil {
-			return err
-		}
-
-		isExpression, err := query.IsExpression()
-		if err != nil {
-			return err
-		}
-		if isExpression {
-			continue
-		}
-
-		_, err = api.DatasourceCache.GetDatasourceByUID(datasourceUID, user, skipCache)
-		if err != nil {
-			return fmt.Errorf("failed to get datasource: %s: %w", datasourceUID, err)
-		}
-	}
-
-	if refID == "" {
-		return fmt.Errorf("condition %s not found in any query or expression", c.RefID)
-	}
-	return nil
 }

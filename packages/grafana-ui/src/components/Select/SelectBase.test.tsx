@@ -1,56 +1,72 @@
-import React from 'react';
-import { mount, ReactWrapper } from 'enzyme';
-import { render, screen } from '@testing-library/react';
-import selectEvent from 'react-select-event';
-import { SelectBase } from './SelectBase';
-import { SelectableValue } from '@grafana/data';
-import { MultiValueContainer } from './MultiValue';
+import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import React, { useState } from 'react';
 
-const onChangeHandler = () => jest.fn();
-const findMenuElement = (container: ReactWrapper) => container.find({ 'aria-label': 'Select options menu' });
-const options: Array<SelectableValue<number>> = [
-  {
-    label: 'Option 1',
-    value: 1,
-  },
-  {
-    label: 'Option 2',
-    value: 2,
-  },
-];
+import { SelectableValue } from '@grafana/data';
+
+import { selectOptionInTest } from '../../../../../public/test/helpers/selectOptionInTest';
+
+import { SelectBase } from './SelectBase';
 
 describe('SelectBase', () => {
+  const onChangeHandler = jest.fn();
+  const options: Array<SelectableValue<number>> = [
+    {
+      label: 'Option 1',
+      value: 1,
+    },
+    {
+      label: 'Option 2',
+      value: 2,
+    },
+  ];
+
   it('renders without error', () => {
-    mount(<SelectBase onChange={onChangeHandler} />);
+    render(<SelectBase onChange={onChangeHandler} />);
   });
 
-  it('renders empty options information', () => {
-    const container = mount(<SelectBase onChange={onChangeHandler} isOpen />);
-    const noopt = container.find({ 'aria-label': 'No options provided' });
-    expect(noopt).toHaveLength(1);
+  it('renders empty options information', async () => {
+    render(<SelectBase onChange={onChangeHandler} />);
+    await userEvent.click(screen.getByText(/choose/i));
+    expect(screen.queryByText(/no options found/i)).toBeVisible();
   });
 
   it('is selectable via its label text', async () => {
-    const onChange = jest.fn();
-
     render(
       <>
         <label htmlFor="my-select">My select</label>
-        <SelectBase onChange={onChange} options={options} inputId="my-select" />
+        <SelectBase onChange={onChangeHandler} options={options} inputId="my-select" />
       </>
     );
 
     expect(screen.getByLabelText('My select')).toBeInTheDocument();
   });
 
+  it('allows the value to be unset', async () => {
+    const Test = () => {
+      const option = { value: 'test-value', label: 'Test label' };
+      const [value, setValue] = useState<SelectableValue<string> | null>(option);
+
+      return (
+        <>
+          <button onClick={() => setValue(null)}>clear value</button>
+          <SelectBase value={value} onChange={setValue} options={[option]} />
+        </>
+      );
+    };
+
+    render(<Test />);
+    expect(screen.queryByText('Test label')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('clear value'));
+    expect(screen.queryByText('Test label')).not.toBeInTheDocument();
+  });
+
   describe('when openMenuOnFocus prop', () => {
     describe('is provided', () => {
       it('opens on focus', () => {
-        const container = mount(<SelectBase onChange={onChangeHandler} openMenuOnFocus />);
-        container.find('input').simulate('focus');
-
-        const menu = findMenuElement(container);
-        expect(menu).toHaveLength(1);
+        render(<SelectBase onChange={onChangeHandler} openMenuOnFocus />);
+        fireEvent.focus(screen.getByRole('combobox'));
+        expect(screen.queryByText(/no options found/i)).toBeVisible();
       });
     });
     describe('is not provided', () => {
@@ -60,12 +76,10 @@ describe('SelectBase', () => {
         ${'ArrowUp'}
         ${' '}
       `('opens on arrow down/up or space', ({ key }) => {
-        const container = mount(<SelectBase onChange={onChangeHandler} />);
-        const input = container.find('input');
-        input.simulate('focus');
-        input.simulate('keydown', { key });
-        const menu = findMenuElement(container);
-        expect(menu).toHaveLength(1);
+        render(<SelectBase onChange={onChangeHandler} />);
+        fireEvent.focus(screen.getByRole('combobox'));
+        fireEvent.keyDown(screen.getByRole('combobox'), { key });
+        expect(screen.queryByText(/no options found/i)).toBeVisible();
       });
     });
   });
@@ -99,7 +113,7 @@ describe('SelectBase', () => {
 
     describe('is provided', () => {
       it('should only display maxVisibleValues options, and additional number of values should be displayed as indicator', () => {
-        const container = mount(
+        render(
           <SelectBase
             onChange={onChangeHandler}
             isMulti={true}
@@ -109,14 +123,13 @@ describe('SelectBase', () => {
             isOpen={false}
           />
         );
-
-        expect(container.find(MultiValueContainer)).toHaveLength(3);
-        expect(container.find('#excess-values').text()).toBe('(+2)');
+        expect(screen.queryAllByText(/option/i).length).toBe(3);
+        expect(screen.queryByText(/\(\+2\)/i)).toBeVisible();
       });
 
       describe('and showAllSelectedWhenOpen prop is true', () => {
         it('should show all selected options when menu is open', () => {
-          const container = mount(
+          render(
             <SelectBase
               onChange={onChangeHandler}
               isMulti={true}
@@ -128,14 +141,14 @@ describe('SelectBase', () => {
             />
           );
 
-          expect(container.find(MultiValueContainer)).toHaveLength(5);
-          expect(container.find('#excess-values')).toHaveLength(0);
+          expect(screen.queryAllByText(/option/i).length).toBe(5);
+          expect(screen.queryByText(/\(\+2\)/i)).not.toBeInTheDocument();
         });
       });
 
       describe('and showAllSelectedWhenOpen prop is false', () => {
         it('should not show all selected options when menu is open', () => {
-          const container = mount(
+          render(
             <SelectBase
               onChange={onChangeHandler}
               isMulti={true}
@@ -147,15 +160,15 @@ describe('SelectBase', () => {
             />
           );
 
-          expect(container.find('#excess-values').text()).toBe('(+2)');
-          expect(container.find(MultiValueContainer)).toHaveLength(3);
+          expect(screen.queryAllByText(/option/i).length).toBe(3);
+          expect(screen.queryByText(/\(\+2\)/i)).toBeVisible();
         });
       });
     });
 
     describe('is not provided', () => {
       it('should always show all selected options', () => {
-        const container = mount(
+        render(
           <SelectBase
             onChange={onChangeHandler}
             isMulti={true}
@@ -165,15 +178,16 @@ describe('SelectBase', () => {
           />
         );
 
-        expect(container.find(MultiValueContainer)).toHaveLength(5);
-        expect(container.find('#excess-values')).toHaveLength(0);
+        expect(screen.queryAllByText(/option/i).length).toBe(5);
+        expect(screen.queryByText(/\(\+2\)/i)).not.toBeInTheDocument();
       });
     });
   });
 
   describe('options', () => {
-    it('renders menu with provided options', () => {
-      render(<SelectBase options={options} onChange={onChangeHandler} isOpen />);
+    it('renders menu with provided options', async () => {
+      render(<SelectBase options={options} onChange={onChangeHandler} />);
+      await userEvent.click(screen.getByText(/choose/i));
       const menuOptions = screen.getAllByLabelText('Select option');
       expect(menuOptions).toHaveLength(2);
     });
@@ -186,11 +200,65 @@ describe('SelectBase', () => {
       const selectEl = screen.getByLabelText('My select');
       expect(selectEl).toBeInTheDocument();
 
-      await selectEvent.select(selectEl, 'Option 2');
-      expect(spy).toHaveBeenCalledWith({
-        label: 'Option 2',
-        value: 2,
+      await selectOptionInTest(selectEl, 'Option 2');
+      expect(spy).toHaveBeenCalledWith(
+        { label: 'Option 2', value: 2 },
+        { action: 'select-option', name: undefined, option: undefined }
+      );
+    });
+
+    it('hideSelectedOptions prop - when false does not hide selected', async () => {
+      render(<SelectBase onChange={jest.fn()} options={options} aria-label="My select" hideSelectedOptions={false} />);
+
+      const selectEl = screen.getByLabelText('My select');
+
+      await selectOptionInTest(selectEl, 'Option 2');
+      await userEvent.click(screen.getByText(/option 2/i));
+      const menuOptions = screen.getAllByLabelText('Select option');
+      expect(menuOptions).toHaveLength(2);
+    });
+  });
+
+  describe('Multi select', () => {
+    it('calls on change to remove an item when the user presses the remove button', async () => {
+      const value = [
+        {
+          label: 'Option 1',
+          value: 1,
+        },
+      ];
+      render(
+        <SelectBase onChange={onChangeHandler} options={options} isMulti={true} value={value} aria-label="My select" />
+      );
+
+      expect(screen.getByLabelText('My select')).toBeInTheDocument();
+
+      await userEvent.click(screen.getAllByLabelText('Remove')[0]);
+      expect(onChangeHandler).toHaveBeenCalledWith([], {
+        action: 'remove-value',
+        name: undefined,
+        removedValue: { label: 'Option 1', value: 1 },
       });
+    });
+    it('does not allow deleting selected values when disabled', async () => {
+      const value = [
+        {
+          label: 'Option 1',
+          value: 1,
+        },
+      ];
+      render(
+        <SelectBase
+          onChange={onChangeHandler}
+          options={options}
+          disabled
+          isMulti={true}
+          value={value}
+          aria-label="My select"
+        />
+      );
+
+      expect(screen.queryByLabelText('Remove Option 1')).not.toBeInTheDocument();
     });
   });
 });

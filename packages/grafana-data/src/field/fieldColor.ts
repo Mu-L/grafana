@@ -1,20 +1,27 @@
-import { FALLBACK_COLOR, Field, FieldColorModeId, GrafanaTheme, Threshold } from '../types';
-import { classicColors, getColorForTheme, RegistryItem } from '../utils';
-import { Registry } from '../utils/Registry';
 import { interpolateRgbBasis } from 'd3-interpolate';
-import { fallBackTreshold } from './thresholds';
-import { getScaleCalculator, ColorScaleValue } from './scale';
+import stringHash from 'string-hash';
+import tinycolor from 'tinycolor2';
+
+import { colorManipulator } from '../themes';
+import { GrafanaTheme2 } from '../themes/types';
 import { reduceField } from '../transformations/fieldReducer';
+import { FALLBACK_COLOR, Field, FieldColorModeId, Threshold } from '../types';
+import { RegistryItem } from '../utils';
+import { Registry } from '../utils/Registry';
+
+import { getScaleCalculator, ColorScaleValue } from './scale';
+import { fallBackTreshold } from './thresholds';
 
 /** @beta */
 export type FieldValueColorCalculator = (value: number, percent: number, Threshold?: Threshold) => string;
 
 /** @beta */
 export interface FieldColorMode extends RegistryItem {
-  getCalculator: (field: Field, theme: GrafanaTheme) => FieldValueColorCalculator;
-  colors?: string[];
+  getCalculator: (field: Field, theme: GrafanaTheme2) => FieldValueColorCalculator;
+  getColors?: (theme: GrafanaTheme2) => string[];
   isContinuous?: boolean;
   isByValue?: boolean;
+  useSeriesName?: boolean;
 }
 
 /** @internal */
@@ -27,6 +34,12 @@ export const fieldColorModeRegistry = new Registry<FieldColorMode>(() => {
       getCalculator: getFixedColor,
     },
     {
+      id: FieldColorModeId.Shades,
+      name: 'Shades of a color',
+      description: 'Select shades of a specific color',
+      getCalculator: getShadedColor,
+    },
+    {
       id: FieldColorModeId.Thresholds,
       name: 'From thresholds',
       isByValue: true,
@@ -34,144 +47,152 @@ export const fieldColorModeRegistry = new Registry<FieldColorMode>(() => {
       getCalculator: (_field, theme) => {
         return (_value, _percent, threshold) => {
           const thresholdSafe = threshold ?? fallBackTreshold;
-          return getColorForTheme(thresholdSafe.color, theme);
+          return theme.visualization.getColorByName(thresholdSafe.color);
         };
       },
     },
-    // new FieldColorSchemeMode({
-    //   id: FieldColorModeId.PaletteSaturated,
-    //   name: 'Saturated palette',
-    //   //description: 'Assigns color based on series or field index',
-    //   isContinuous: false,
-    //   isByValue: false,
-    //   colors: [
-    //     'blue',
-    //     'red',
-    //     'green',
-    //     'orange',
-    //     'purple',
-    //     'orange',
-    //     'dark-blue',
-    //     'dark-red',
-    //     'dark-yellow',
-    //     'dark-purple',
-    //     'dark-orange',
-    //   ],
-    // }),
     new FieldColorSchemeMode({
       id: FieldColorModeId.PaletteClassic,
       name: 'Classic palette',
       isContinuous: false,
       isByValue: false,
-      colors: classicColors,
+      getColors: (theme: GrafanaTheme2) => {
+        return theme.visualization.palette;
+      },
     }),
     new FieldColorSchemeMode({
-      id: 'continuous-GrYlRd',
+      id: FieldColorModeId.PaletteClassicByName,
+      name: 'Classic palette (by series name)',
+      isContinuous: false,
+      isByValue: false,
+      useSeriesName: true,
+      getColors: (theme: GrafanaTheme2) => {
+        return theme.visualization.palette.filter(
+          (color) =>
+            colorManipulator.getContrastRatio(
+              theme.visualization.getColorByName(color),
+              theme.colors.background.primary
+            ) >= theme.colors.contrastThreshold
+        );
+      },
+    }),
+    new FieldColorSchemeMode({
+      id: FieldColorModeId.ContinuousGrYlRd,
       name: 'Green-Yellow-Red',
       isContinuous: true,
       isByValue: true,
-      colors: ['green', 'yellow', 'red'],
+      getColors: (theme: GrafanaTheme2) => ['green', 'yellow', 'red'],
     }),
     new FieldColorSchemeMode({
-      id: 'continuous-RdYlGr',
+      id: FieldColorModeId.ContinuousRdYlGr,
       name: 'Red-Yellow-Green',
       isContinuous: true,
       isByValue: true,
-      colors: ['red', 'yellow', 'green'],
+      getColors: (theme: GrafanaTheme2) => ['red', 'yellow', 'green'],
     }),
     new FieldColorSchemeMode({
-      id: 'continuous-BlYlRd',
+      id: FieldColorModeId.ContinuousBlYlRd,
       name: 'Blue-Yellow-Red',
       isContinuous: true,
       isByValue: true,
-      colors: ['dark-blue', 'super-light-yellow', 'dark-red'],
+      getColors: (theme: GrafanaTheme2) => ['dark-blue', 'super-light-yellow', 'dark-red'],
     }),
     new FieldColorSchemeMode({
-      id: 'continuous-YlRd',
+      id: FieldColorModeId.ContinuousYlRd,
       name: 'Yellow-Red',
       isContinuous: true,
       isByValue: true,
-      colors: ['super-light-yellow', 'dark-red'],
+      getColors: (theme: GrafanaTheme2) => ['super-light-yellow', 'dark-red'],
     }),
     new FieldColorSchemeMode({
-      id: 'continuous-BlPu',
+      id: FieldColorModeId.ContinuousBlPu,
       name: 'Blue-Purple',
       isContinuous: true,
       isByValue: true,
-      colors: ['blue', 'purple'],
+      getColors: (theme: GrafanaTheme2) => ['blue', 'purple'],
     }),
     new FieldColorSchemeMode({
-      id: 'continuous-YlBl',
+      id: FieldColorModeId.ContinuousYlBl,
       name: 'Yellow-Blue',
       isContinuous: true,
       isByValue: true,
-      colors: ['super-light-yellow', 'dark-blue'],
+      getColors: (theme: GrafanaTheme2) => ['super-light-yellow', 'dark-blue'],
     }),
     new FieldColorSchemeMode({
-      id: 'continuous-blues',
+      id: FieldColorModeId.ContinuousBlues,
       name: 'Blues',
       isContinuous: true,
       isByValue: true,
-      colors: ['panel-bg', 'dark-blue'],
+      getColors: (theme: GrafanaTheme2) => ['panel-bg', 'dark-blue'],
     }),
     new FieldColorSchemeMode({
-      id: 'continuous-reds',
+      id: FieldColorModeId.ContinuousReds,
       name: 'Reds',
       isContinuous: true,
       isByValue: true,
-      colors: ['panel-bg', 'dark-red'],
+      getColors: (theme: GrafanaTheme2) => ['panel-bg', 'dark-red'],
     }),
     new FieldColorSchemeMode({
-      id: 'continuous-greens',
+      id: FieldColorModeId.ContinuousGreens,
       name: 'Greens',
       isContinuous: true,
       isByValue: true,
-      colors: ['panel-bg', 'dark-green'],
+      getColors: (theme: GrafanaTheme2) => ['panel-bg', 'dark-green'],
     }),
     new FieldColorSchemeMode({
-      id: 'continuous-purples',
+      id: FieldColorModeId.ContinuousPurples,
       name: 'Purples',
       isContinuous: true,
       isByValue: true,
-      colors: ['panel-bg', 'dark-purple'],
+      getColors: (theme: GrafanaTheme2) => ['panel-bg', 'dark-purple'],
     }),
   ];
 });
 
 interface FieldColorSchemeModeOptions {
-  id: string;
+  id: FieldColorModeId;
   name: string;
   description?: string;
-  colors: string[];
+  getColors: (theme: GrafanaTheme2) => string[];
   isContinuous: boolean;
   isByValue: boolean;
+  useSeriesName?: boolean;
 }
 
 export class FieldColorSchemeMode implements FieldColorMode {
-  id: string;
+  id: FieldColorModeId;
   name: string;
   description?: string;
-  colors: string[];
   isContinuous: boolean;
   isByValue: boolean;
+  useSeriesName?: boolean;
   colorCache?: string[];
+  colorCacheTheme?: GrafanaTheme2;
   interpolator?: (value: number) => string;
+  getNamedColors?: (theme: GrafanaTheme2) => string[];
 
   constructor(options: FieldColorSchemeModeOptions) {
     this.id = options.id;
     this.name = options.name;
     this.description = options.description;
-    this.colors = options.colors;
+    this.getNamedColors = options.getColors;
     this.isContinuous = options.isContinuous;
     this.isByValue = options.isByValue;
+    this.useSeriesName = options.useSeriesName;
   }
 
-  private getColors(theme: GrafanaTheme) {
-    if (this.colorCache) {
+  getColors(theme: GrafanaTheme2): string[] {
+    if (!this.getNamedColors) {
+      return [];
+    }
+
+    if (this.colorCache && this.colorCacheTheme === theme) {
       return this.colorCache;
     }
 
-    this.colorCache = this.colors.map((c) => getColorForTheme(c, theme));
+    this.colorCache = this.getNamedColors(theme).map(theme.visualization.getColorByName);
+    this.colorCacheTheme = theme;
+
     return this.colorCache;
   }
 
@@ -183,7 +204,7 @@ export class FieldColorSchemeMode implements FieldColorMode {
     return this.interpolator;
   }
 
-  getCalculator(field: Field, theme: GrafanaTheme) {
+  getCalculator(field: Field, theme: GrafanaTheme2) {
     const colors = this.getColors(theme);
 
     if (this.isByValue) {
@@ -196,10 +217,13 @@ export class FieldColorSchemeMode implements FieldColorMode {
           return colors[percent * (colors.length - 1)];
         };
       }
-    } else {
-      const seriesIndex = field.state?.seriesIndex ?? 0;
-
+    } else if (this.useSeriesName) {
       return (_: number, _percent: number, _threshold?: Threshold) => {
+        return colors[Math.abs(stringHash(field.name)) % colors.length];
+      };
+    } else {
+      return (_: number, _percent: number, _threshold?: Threshold) => {
+        const seriesIndex = field.state?.seriesIndex ?? 0;
         return colors[seriesIndex % colors.length];
       };
     }
@@ -212,7 +236,7 @@ export function getFieldColorModeForField(field: Field): FieldColorMode {
 }
 
 /** @beta */
-export function getFieldColorMode(mode?: FieldColorModeId): FieldColorMode {
+export function getFieldColorMode(mode?: FieldColorModeId | string): FieldColorMode {
   return fieldColorModeRegistry.get(mode ?? FieldColorModeId.Thresholds);
 }
 
@@ -221,7 +245,7 @@ export function getFieldColorMode(mode?: FieldColorModeId): FieldColorMode {
  * Function that will return a series color for any given color mode. If the color mode is a by value color
  * mode it will use the field.config.color.seriesBy property to figure out which value to use
  */
-export function getFieldSeriesColor(field: Field, theme: GrafanaTheme): ColorScaleValue {
+export function getFieldSeriesColor(field: Field, theme: GrafanaTheme2): ColorScaleValue {
   const mode = getFieldColorModeForField(field);
 
   if (!mode.isByValue) {
@@ -240,8 +264,44 @@ export function getFieldSeriesColor(field: Field, theme: GrafanaTheme): ColorSca
   return scale(value);
 }
 
-function getFixedColor(field: Field, theme: GrafanaTheme) {
+function getFixedColor(field: Field, theme: GrafanaTheme2) {
   return () => {
-    return getColorForTheme(field.config.color?.fixedColor ?? FALLBACK_COLOR, theme);
+    return theme.visualization.getColorByName(field.config.color?.fixedColor ?? FALLBACK_COLOR);
+  };
+}
+
+function getShadedColor(field: Field, theme: GrafanaTheme2) {
+  return () => {
+    const baseColorString: string = theme.visualization.getColorByName(
+      field.config.color?.fixedColor ?? FALLBACK_COLOR
+    );
+
+    const colors: string[] = [
+      baseColorString, // start with base color
+    ];
+
+    const shadesCount = 6;
+    const maxHueSpin = 10; // hue spin, max is 360
+    const maxDarken = 35; // max 100%
+    const maxBrighten = 35; // max 100%
+
+    for (let i = 1; i < shadesCount; i++) {
+      // push alternating darker and brighter shades
+      colors.push(
+        tinycolor(baseColorString)
+          .spin((i / shadesCount) * maxHueSpin)
+          .brighten((i / shadesCount) * maxDarken)
+          .toHexString()
+      );
+      colors.push(
+        tinycolor(baseColorString)
+          .spin(-(i / shadesCount) * maxHueSpin)
+          .darken((i / shadesCount) * maxBrighten)
+          .toHexString()
+      );
+    }
+
+    const seriesIndex = field.state?.seriesIndex ?? 0;
+    return colors[seriesIndex % colors.length];
   };
 }

@@ -38,6 +38,15 @@ func (il *InstanceLabels) ToDB() ([]byte, error) {
 	return []byte{}, fmt.Errorf("database serialization of alerting ng Instance labels is not implemented")
 }
 
+func (il *InstanceLabels) StringKey() (string, error) {
+	tl := labelsToTupleLabels(*il)
+	b, err := json.Marshal(tl)
+	if err != nil {
+		return "", fmt.Errorf("could not generate key due to failure to encode labels: %w", err)
+	}
+	return string(b), nil
+}
+
 // StringAndHash returns a the json representation of the labels as tuples
 // sorted by key. It also returns the a hash of that representation.
 func (il *InstanceLabels) StringAndHash() (string, string, error) {
@@ -45,7 +54,7 @@ func (il *InstanceLabels) StringAndHash() (string, string, error) {
 
 	b, err := json.Marshal(tl)
 	if err != nil {
-		return "", "", fmt.Errorf("can not gereate key for alert instance due to failure to encode labels: %w", err)
+		return "", "", fmt.Errorf("could not generate key for alert instance due to failure to encode labels: %w", err)
 	}
 
 	h := sha1.New()
@@ -67,7 +76,7 @@ type tupleLabels []tupleLabel
 type tupleLabel [2]string
 
 // Sort tupleLabels by each elements first property (key).
-func (t *tupleLabels) sortBtKey() {
+func (t *tupleLabels) sortByKey() {
 	if t == nil {
 		return
 	}
@@ -78,21 +87,18 @@ func (t *tupleLabels) sortBtKey() {
 
 // labelsToTupleLabels converts Labels (map[string]string) to tupleLabels.
 func labelsToTupleLabels(l InstanceLabels) tupleLabels {
-	if l == nil {
-		return nil
-	}
 	t := make(tupleLabels, 0, len(l))
 	for k, v := range l {
 		t = append(t, tupleLabel{k, v})
 	}
-	t.sortBtKey()
+	t.sortByKey()
 	return t
 }
 
 // tupleLabelsToLabels converts tupleLabels to Labels (map[string]string), erroring if there are duplicate keys.
 func tupleLablesToLabels(tuples tupleLabels) (InstanceLabels, error) {
 	if tuples == nil {
-		return nil, nil
+		return InstanceLabels{}, nil
 	}
 	labels := make(map[string]string)
 	for _, tuple := range tuples {

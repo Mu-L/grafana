@@ -1,17 +1,29 @@
-const applyFieldOverridesMock = jest.fn();
+const applyFieldOverridesMock = jest.fn(); // needs to be first in this file
+
+import { Subject } from 'rxjs';
+
+// Importing this way to be able to spy on grafana/data
+import * as grafanaData from '@grafana/data';
+import { DataSourceApi } from '@grafana/data';
+import { DataSourceSrv, setDataSourceSrv, setEchoSrv } from '@grafana/runtime';
+import { TemplateSrvMock } from 'app/features/templating/template_srv.mock';
+
+import { Echo } from '../../../core/services/echo/Echo';
+import { createDashboardModelFixture } from '../../dashboard/state/__fixtures__/dashboardFixtures';
+
+import {
+  createDashboardQueryRunner,
+  DashboardQueryRunnerFactoryArgs,
+  setDashboardQueryRunnerFactory,
+} from './DashboardQueryRunner/DashboardQueryRunner';
+import { emptyResult } from './DashboardQueryRunner/utils';
+import { PanelQueryRunner, QueryRunnerOptions } from './PanelQueryRunner';
 
 jest.mock('@grafana/data', () => ({
   __esModule: true,
-  ...(jest.requireActual('@grafana/data') as any),
+  ...jest.requireActual('@grafana/data'),
   applyFieldOverrides: applyFieldOverridesMock,
 }));
-
-import { PanelQueryRunner } from './PanelQueryRunner';
-// Importing this way to be able to spy on grafana/data
-import * as grafanaData from '@grafana/data';
-import { DashboardModel } from '../../dashboard/state/index';
-import { setDataSourceSrv, setEchoSrv } from '@grafana/runtime';
-import { Echo } from '../../../core/services/echo/Echo';
 
 jest.mock('app/core/services/backend_srv');
 jest.mock('app/core/config', () => ({
@@ -21,7 +33,7 @@ jest.mock('app/core/config', () => ({
   }),
 }));
 
-const dashboardModel = new DashboardModel({
+const dashboardModel = createDashboardModelFixture({
   panels: [{ id: 1, type: 'graph' }],
 });
 
@@ -31,6 +43,10 @@ jest.mock('app/features/dashboard/services/DashboardSrv', () => ({
       getCurrent: () => dashboardModel,
     };
   },
+}));
+
+jest.mock('app/features/templating/template_srv', () => ({
+  getTemplateSrv: () => new TemplateSrvMock({}),
 }));
 
 interface ScenarioContext {
@@ -50,6 +66,11 @@ interface ScenarioContext {
 }
 
 type ScenarioFn = (ctx: ScenarioContext) => void;
+const defaultPanelConfig: grafanaData.DataConfigSource = {
+  getFieldOverrideOptions: () => undefined,
+  getTransformations: () => undefined,
+  getDataSupport: () => ({ annotations: false, alertStates: false }),
+};
 
 function describeQueryRunnerScenario(
   description: string,
@@ -58,10 +79,6 @@ function describeQueryRunnerScenario(
 ) {
   describe(description, () => {
     let setupFn = () => {};
-    const defaultPanelConfig: grafanaData.DataConfigSource = {
-      getFieldOverrideOptions: () => undefined,
-      getTransformations: () => undefined,
-    };
     const ctx: ScenarioContext = {
       maxDataPoints: 200,
       scopedVars: {
@@ -73,7 +90,7 @@ function describeQueryRunnerScenario(
       },
     };
 
-    const response: any = {
+    const response = {
       data: [
         {
           target: 'hello',
@@ -85,35 +102,45 @@ function describeQueryRunnerScenario(
       ],
     };
 
-    setDataSourceSrv({} as any);
+    setDataSourceSrv({} as DataSourceSrv);
+    setDashboardQueryRunnerFactory(() => ({
+      getResult: emptyResult,
+      run: () => undefined,
+      cancel: () => undefined,
+      cancellations: () => new Subject(),
+      destroy: () => undefined,
+    }));
+    createDashboardQueryRunner({} as DashboardQueryRunnerFactoryArgs);
 
     beforeEach(async () => {
       setEchoSrv(new Echo());
       setupFn();
 
-      const datasource: any = {
+      const datasource = {
         name: 'TestDB',
+        uid: 'TestDB-uid',
         interval: ctx.dsInterval,
         query: (options: grafanaData.DataQueryRequest) => {
           ctx.queryCalledWith = options;
           return Promise.resolve(response);
         },
+        getRef: () => ({ type: 'test', uid: 'TestDB-uid' }),
         testDatasource: jest.fn(),
-      };
+      } as unknown as DataSourceApi;
 
-      const args: any = {
+      const args = {
         datasource,
         scopedVars: ctx.scopedVars,
         minInterval: ctx.minInterval,
-        maxDataPoints: ctx.maxDataPoints,
+        maxDataPoints: ctx.maxDataPoints ?? Infinity,
         timeRange: {
           from: grafanaData.dateTime().subtract(1, 'days'),
           to: grafanaData.dateTime(),
           raw: { from: '1d', to: 'now' },
         },
         panelId: 1,
-        queries: [{ refId: 'A', test: 1 }],
-      };
+        queries: [{ refId: 'A' }],
+      } as QueryRunnerOptions;
 
       ctx.runner = new PanelQueryRunner(panelConfig || defaultPanelConfig);
       ctx.runner.getData({ withTransforms: true, withFieldConfig: true }).subscribe({
@@ -141,14 +168,14 @@ describe('PanelQueryRunner', () => {
       expect(ctx.queryCalledWith?.requestId).toBe('Q100');
     });
 
-    it('should set datasource name on request', async () => {
-      expect(ctx.queryCalledWith?.targets[0].datasource).toBe('TestDB');
+    it('should set datasource uid on request', async () => {
+      expect(ctx.queryCalledWith?.targets[0].datasource?.uid).toBe('TestDB-uid');
     });
 
     it('should pass scopedVars to datasource with interval props', async () => {
-      expect(ctx.queryCalledWith?.scopedVars.server.text).toBe('Server1');
-      expect(ctx.queryCalledWith?.scopedVars.__interval.text).toBe('5m');
-      expect(ctx.queryCalledWith?.scopedVars.__interval_ms.text).toBe('300000');
+      expect(ctx.queryCalledWith?.scopedVars.server!.text).toBe('Server1');
+      expect(ctx.queryCalledWith?.scopedVars.__interval!.text).toBe('5m');
+      expect(ctx.queryCalledWith?.scopedVars.__interval_ms!.text).toBe('300000');
     });
   });
 
@@ -234,9 +261,10 @@ describe('PanelQueryRunner', () => {
           overrides: [],
         },
         replaceVariables: (v) => v,
-        theme: {} as grafanaData.GrafanaTheme,
+        theme: grafanaData.createTheme(),
       }),
       getTransformations: () => undefined,
+      getDataSupport: () => ({ annotations: false, alertStates: false }),
     }
   );
 
@@ -259,7 +287,8 @@ describe('PanelQueryRunner', () => {
     {
       getFieldOverrideOptions: () => undefined,
       // @ts-ignore
-      getTransformations: () => [({} as unknown) as grafanaData.DataTransformerConfig],
+      getTransformations: () => [{} as unknown as grafanaData.DataTransformerConfig],
+      getDataSupport: () => ({ annotations: false, alertStates: false }),
     }
   );
 
@@ -298,10 +327,11 @@ describe('PanelQueryRunner', () => {
           overrides: [],
         },
         replaceVariables: (v) => v,
-        theme: {} as grafanaData.GrafanaTheme,
+        theme: grafanaData.createTheme(),
       }),
       // @ts-ignore
-      getTransformations: () => [({} as unknown) as grafanaData.DataTransformerConfig],
+      getTransformations: () => [{} as unknown as grafanaData.DataTransformerConfig],
+      getDataSupport: () => ({ annotations: false, alertStates: false }),
     }
   );
 
@@ -340,10 +370,39 @@ describe('PanelQueryRunner', () => {
           overrides: [],
         },
         replaceVariables: (v) => v,
-        theme: {} as grafanaData.GrafanaTheme,
+        theme: grafanaData.createTheme(),
       }),
       // @ts-ignore
       getTransformations: () => [{}],
+      getDataSupport: () => ({ annotations: false, alertStates: false }),
+    }
+  );
+
+  const snapshotData: grafanaData.DataFrameDTO[] = [
+    {
+      fields: [
+        { name: 'time', type: grafanaData.FieldType.time, values: [1000] },
+        { name: 'value', type: grafanaData.FieldType.number, values: [1] },
+      ],
+    },
+  ];
+  describeQueryRunnerScenario(
+    'getData with snapshot data',
+    (ctx) => {
+      it('should return snapshotted data', async () => {
+        ctx.runner.getData({ withTransforms: false, withFieldConfig: true }).subscribe({
+          next: (data: grafanaData.PanelData) => {
+            expect(data.state).toBe(grafanaData.LoadingState.Done);
+            expect(data.series).toEqual(snapshotData);
+            expect(data.timeRange).toEqual(grafanaData.getDefaultTimeRange());
+            return data;
+          },
+        });
+      });
+    },
+    {
+      ...defaultPanelConfig,
+      snapshotData,
     }
   );
 });

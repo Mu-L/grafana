@@ -4,6 +4,8 @@ import (
 	"sync"
 
 	"github.com/grafana/grafana/pkg/components/null"
+	"github.com/grafana/grafana/pkg/services/auth/identity"
+	"github.com/grafana/grafana/pkg/services/dashboards"
 )
 
 // Job holds state about when the alert rule should be evaluated.
@@ -33,7 +35,7 @@ func (j *Job) SetRunning(b bool) {
 // ResultLogEntry represents log data for the alert evaluation.
 type ResultLogEntry struct {
 	Message string
-	Data    interface{}
+	Data    any
 }
 
 // EvalMatch represents the series violating the threshold.
@@ -41,4 +43,10 @@ type EvalMatch struct {
 	Value  null.Float        `json:"value"`
 	Metric string            `json:"metric"`
 	Tags   map[string]string `json:"tags"`
+}
+
+type DashAlertInfo struct {
+	User  identity.Requester
+	Dash  *dashboards.Dashboard
+	OrgID int64
 }

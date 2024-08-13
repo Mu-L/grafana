@@ -1,41 +1,36 @@
-import { css } from 'emotion';
+import { css } from '@emotion/css';
 
-import { GrafanaTheme } from '@grafana/data';
-import { styleMixins, stylesFactory } from '@grafana/ui';
+import { GrafanaTheme2 } from '@grafana/data';
 
-export const getStyles = stylesFactory((theme: GrafanaTheme) => ({
+export const getStyles = (theme: GrafanaTheme2) => ({
   dashlistSectionHeader: css`
-    margin-bottom: ${theme.spacing.d};
-    color: ${theme.colors.textWeak};
+    padding: ${theme.spacing(0.25, 1)};
+    margin-right: ${theme.spacing(1)};
   `,
-
   dashlistSection: css`
-    margin-bottom: ${theme.spacing.d};
+    margin-bottom: ${theme.spacing(2)};
     padding-top: 3px;
   `,
-
   dashlistLink: css`
-    ${styleMixins.listItem(theme)}
     display: flex;
     cursor: pointer;
-    margin: 3px;
-    padding: 7px;
-  `,
-
-  dashlistStar: css`
-    display: flex;
+    border-bottom: 1px solid ${theme.colors.border.weak};
+    margin-right: ${theme.spacing(1)};
+    padding: ${theme.spacing(1)};
     align-items: center;
-    color: ${theme.colors.textWeak};
-    cursor: pointer;
-    z-index: 1;
-  `,
 
+    &:hover {
+      a {
+        color: ${theme.colors.text.link};
+        text-decoration: underline;
+      }
+    }
+  `,
   dashlistFolder: css`
-    color: ${theme.colors.textWeak};
-    font-size: ${theme.typography.size.sm};
-    line-height: ${theme.typography.lineHeight.sm};
+    color: ${theme.colors.text.secondary};
+    font-size: ${theme.typography.bodySmall.fontSize};
+    line-height: ${theme.typography.body.lineHeight};
   `,
-
   dashlistTitle: css`
     &::after {
       position: absolute;
@@ -46,13 +41,13 @@ export const getStyles = stylesFactory((theme: GrafanaTheme) => ({
       right: 0;
     }
   `,
-
   dashlistLinkBody: css`
     flex-grow: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
   `,
-
   dashlistItem: css`
     position: relative;
     list-style: none;
   `,
-}));
+});

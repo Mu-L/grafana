@@ -1,11 +1,10 @@
-import React, { useState } from 'react';
-import { css } from 'emotion';
-import cx from 'classnames';
-import { LegacyForms } from '@grafana/ui';
-const { FormField } = LegacyForms;
-import { DerivedFieldConfig } from '../types';
-import { ArrayVector, Field, FieldType, LinkModel } from '@grafana/data';
+import React, { ReactNode, useState } from 'react';
+
+import { Field, FieldType, LinkModel } from '@grafana/data';
+import { InlineField, TextArea } from '@grafana/ui';
+
 import { getFieldLinksForExplore } from '../../../../features/explore/utils/links';
+import { DerivedFieldConfig } from '../types';
 
 type Props = {
   derivedFields?: DerivedFieldConfig[];
@@ -22,23 +21,15 @@ export const DebugSection = (props: Props) => {
 
   return (
     <div className={className}>
-      <FormField
-        labelWidth={12}
-        label={'Debug log message'}
-        inputEl={
-          <textarea
-            placeholder={'Paste an example log line here to test the regular expressions of your derived fields'}
-            className={cx(
-              'gf-form-input gf-form-textarea',
-              css`
-                width: 100%;
-              `
-            )}
-            value={debugText}
-            onChange={(event) => setDebugText(event.currentTarget.value)}
-          />
-        }
-      />
+      <InlineField label="Debug log message" labelWidth={24} grow>
+        <TextArea
+          type="text"
+          aria-label="Prometheus Query"
+          placeholder="Paste an example log line here to test the regular expressions of your derived fields"
+          value={debugText}
+          onChange={(event) => setDebugText(event.currentTarget.value)}
+        />
+      </InlineField>
       {!!debugFields.length && <DebugFields fields={debugFields} />}
     </div>
   );
@@ -59,8 +50,8 @@ const DebugFields = ({ fields }: DebugFieldItemProps) => {
       </thead>
       <tbody>
         {fields.map((field) => {
-          let value: any = field.value;
-          if (field.error) {
+          let value: ReactNode = field.value;
+          if (field.error && field.error instanceof Error) {
             value = field.error.message;
           } else if (field.href) {
             value = <a href={field.href}>{value}</a>;
@@ -80,7 +71,7 @@ const DebugFields = ({ fields }: DebugFieldItemProps) => {
 
 type DebugField = {
   name: string;
-  error?: any;
+  error?: unknown;
   value?: string;
   href?: string;
 };
@@ -99,7 +90,7 @@ function makeDebugFields(derivedFields: DerivedFieldConfig[], debugText: string)
             field: {
               name: '',
               type: FieldType.string,
-              values: new ArrayVector([value]),
+              values: [value],
               config: {
                 links: [{ title: '', url: field.url }],
               },
@@ -109,16 +100,18 @@ function makeDebugFields(derivedFields: DerivedFieldConfig[], debugText: string)
           })[0];
         }
 
-        return {
+        const result: DebugField = {
           name: field.name,
           value: value || '<no match>',
-          href: link && link.href,
-        } as DebugField;
+          href: link ? link.href : undefined,
+        };
+        return result;
       } catch (error) {
-        return {
+        const result: DebugField = {
           name: field.name,
           error,
-        } as DebugField;
+        };
+        return result;
       }
     });
 }
